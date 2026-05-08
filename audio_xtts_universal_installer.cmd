@@ -88,16 +88,24 @@ exit /b 0
 :download_code
 if exist "%APP_DIR%\install_models.cmd" (
   echo Project folder already exists: %APP_DIR%
+  set "UPDATED_PROJECT="
   if exist "%APP_DIR%\.git" (
     where git >nul 2>nul
     if not errorlevel 1 (
       echo Updating existing project folder from GitHub...
+      git -C "%APP_DIR%" reset --hard HEAD
+      if errorlevel 1 exit /b 1
+      git -C "%APP_DIR%" clean -fd -e .installer_cache -e xtts_api/.venv -e xtts_api/reference_audio -e xtts_api/studio_projects
+      if errorlevel 1 exit /b 1
       git -C "%APP_DIR%" pull --ff-only
       if errorlevel 1 exit /b 1
+      set "UPDATED_PROJECT=1"
     ) else (
       echo Git is not installed; keeping existing project folder as-is.
     )
   )
+  if not defined UPDATED_PROJECT call :refresh_existing_project_from_zip
+  if errorlevel 1 exit /b 1
   if exist "%CURRENT_INSTALLER%" (
     if /i not "%CURRENT_INSTALLER%"=="%CD%\%APP_DIR%\audio_xtts_universal_installer.cmd" copy /y "%CURRENT_INSTALLER%" "%APP_DIR%\audio_xtts_universal_installer.cmd" >nul
   )
@@ -124,6 +132,22 @@ if exist "%UNZIP_DIR%\audio-main" (
 )
 echo ERROR: Could not find extracted audio-main folder.
 exit /b 1
+
+:refresh_existing_project_from_zip
+echo Refreshing existing project folder from GitHub ZIP because Git update is unavailable...
+set "ZIP_PATH=%TEMP%\audio-main.zip"
+set "UNZIP_DIR=%TEMP%\audio-main-unzip"
+if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%"
+if exist "%UNZIP_DIR%" rmdir /s /q "%UNZIP_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%ZIP_PATH%'; Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%UNZIP_DIR%' -Force"
+if errorlevel 1 exit /b 1
+if not exist "%UNZIP_DIR%\audio-main\install_models.cmd" (
+  echo ERROR: Could not find install_models.cmd in downloaded project ZIP.
+  exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$src='%UNZIP_DIR%\audio-main'; $dst='%CD%\%APP_DIR%'; Copy-Item (Join-Path $src '*') $dst -Recurse -Force"
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :download_assets
 echo.
