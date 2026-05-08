@@ -6,6 +6,8 @@ set "PYTHONUTF8=1"
 set "COQUI_TOS_AGREED=1"
 set "XTTS_VENV=xtts_api\.venv"
 set "XTTS_PY=%XTTS_VENV%\Scripts\python.exe"
+set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
+set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
 
 echo XTTS installer / model preloader
 echo =================================
@@ -39,9 +41,15 @@ echo Upgrading pip tooling ...
 if errorlevel 1 exit /b 1
 
 echo.
-echo Installing XTTS Python dependencies ...
-"%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
-if errorlevel 1 exit /b 1
+echo Checking XTTS Python dependencies ...
+"%XTTS_PY%" -c "import TTS, torch, torchaudio, fastapi, uvicorn, soundfile, transformers, tokenizers" >nul 2>nul
+if errorlevel 1 (
+  echo Installing missing XTTS Python dependencies ...
+  "%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  if errorlevel 1 exit /b 1
+) else (
+  echo XTTS Python dependencies already look installed.
+)
 
 echo.
 echo Preparing the default Natalia Shtin XTTS reference audio ...
@@ -56,6 +64,11 @@ if not exist "xtts_api\reference_audio\natalia_shtin\natalia_shtin_clean_referen
 )
 
 echo.
+if exist "%XTTS_MODEL%" (
+  echo XTTS v2 model already exists in the local user cache: %XTTS_CACHE%
+  goto done
+)
+
 echo Preloading Coqui XTTS v2 model into the local user cache ...
 set "PRELOAD_SCRIPT=%TEMP%\preload_xtts_model.py"
 > "%PRELOAD_SCRIPT%" echo import os
@@ -73,6 +86,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+:done
 echo.
 echo Done.
 echo XTTS v2 model cache: %%LOCALAPPDATA%%\tts\tts_models--multilingual--multi-dataset--xtts_v2
