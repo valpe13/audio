@@ -25,7 +25,8 @@ xtts_api/.venv/
 *token*
 *credentials*
 
-# ComfyUI portable bundle and runtime/model installs
+# Do not commit portable runtimes or downloaded model bundles.
+# Installer scripts recreate/download runtime assets locally when needed.
 ComfyUI_windows_portable/
 fish_speech_runtime/
 1/

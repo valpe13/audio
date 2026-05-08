@@ -1,4 +1,30 @@
-# Local Fish Speech API + long-form audio workflow + ComfyUI bridge
+# Local XTTS Studio + optional audio APIs/ComfyUI bridges
+
+## Fresh Windows setup for the current XTTS workflow
+
+The active workflow is the standalone XTTS Studio in [`xtts_api/`](xtts_api/). It is launched by [`run_audio_stack.cmd`](run_audio_stack.cmd) and does **not** require [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) for normal XTTS generation. The ComfyUI folders in this repository are optional bridges for older/alternate workflows.
+
+From a fresh clone on Windows:
+
+```bat
+git clone https://github.com/valpe13/audio.git
+cd audio
+install_models.cmd
+run_audio_stack.cmd
+```
+
+For unattended setup/CI checks, run [`install_models.cmd --no-pause`](install_models.cmd) to skip the final keypress prompt.
+
+Choose option `1` in [`run_audio_stack.cmd`](run_audio_stack.cmd) to open XTTS Studio at [`http://127.0.0.1:7870/studio/`](README.md).
+
+[`install_models.cmd`](install_models.cmd) prepares only the required XTTS path:
+
+- creates/reuses the Python 3.10 virtual environment at [`xtts_api/.venv/`](xtts_api/.venv/);
+- installs [`xtts_api/requirements.txt`](xtts_api/requirements.txt) with the CUDA 12.1 PyTorch wheel index and keeps [`setuptools`](README.md) below `81` because the Coqui/librosa stack still imports [`pkg_resources`](README.md);
+- downloads/builds the default Natalia Shtin reference WAV at [`xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav`](xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav) using [`xtts_api/prepare_natalia_shtin_reference.py`](xtts_api/prepare_natalia_shtin_reference.py);
+- preloads Coqui model [`tts_models/multilingual/multi-dataset/xtts_v2`](README.md) into the normal per-user Coqui cache, typically [`%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2`](README.md).
+
+If you specifically need ComfyUI later, install or unpack it separately into [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) and use launcher options `4` or `5`. The current XTTS Studio server in [`xtts_api/studio_server.py`](xtts_api/studio_server.py) runs directly through Coqui [`TTS`](xtts_api/requirements.txt:1), not through ComfyUI or custom nodes.
 
 This workspace contains a complete local long-form audio pipeline:
 
