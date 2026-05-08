@@ -19,7 +19,8 @@ echo Universal Audio XTTS installer
 echo ==============================
 echo.
 echo This file downloads the project code, Python 3.10 if needed,
-echo XTTS release assets, Python libraries, and prepares the local environment.
+echo XTTS release assets, Python libraries, Microsoft C++ Build Tools if needed,
+echo and prepares the local environment.
 echo.
 
 where powershell >nul 2>nul
