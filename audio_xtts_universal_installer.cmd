@@ -12,6 +12,7 @@ set "PYTHON_URL=https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.e
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
 set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
 set "XTTS_REFERENCE=xtts_api\reference_audio\natalia_shtin\natalia_shtin_clean_reference.wav"
+set "CURRENT_INSTALLER=%~f0"
 
 if /i "%~1"=="--no-pause" set "NO_PAUSE=1"
 
@@ -96,6 +97,9 @@ if exist "%APP_DIR%\install_models.cmd" (
     ) else (
       echo Git is not installed; keeping existing project folder as-is.
     )
+  )
+  if exist "%CURRENT_INSTALLER%" (
+    if /i not "%CURRENT_INSTALLER%"=="%CD%\%APP_DIR%\audio_xtts_universal_installer.cmd" copy /y "%CURRENT_INSTALLER%" "%APP_DIR%\audio_xtts_universal_installer.cmd" >nul
   )
   exit /b 0
 )

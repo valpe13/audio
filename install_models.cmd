@@ -47,7 +47,7 @@ if errorlevel 1 (
   call :ensure_cpp_build_tools
   if errorlevel 1 exit /b 1
   echo Installing missing XTTS Python dependencies ...
-  "%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  call :pip_install_xtts_requirements
   if errorlevel 1 exit /b 1
 ) else (
   echo XTTS Python dependencies already look installed.
@@ -140,3 +140,22 @@ if errorlevel 1 (
 echo Microsoft C++ Build Tools installation finished.
 echo If pip still cannot find the compiler, close this window and run the installer again.
 exit /b 0
+
+:pip_install_xtts_requirements
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set "VSINSTALL="
+if exist "%VSWHERE%" (
+  for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%I"
+)
+
+if defined VSINSTALL if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
+  echo Running pip inside Visual Studio compiler environment ...
+  call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+  if errorlevel 1 exit /b 1
+  "%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  exit /b %ERRORLEVEL%
+)
+
+echo Visual Studio developer environment was not found; trying normal pip install ...
+"%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+exit /b %ERRORLEVEL%
