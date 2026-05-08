@@ -1,0 +1,10 @@
+TTS==0.22.0
+soundfile==0.13.1
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+transformers==4.40.2
+tokenizers==0.19.1
+imageio-ffmpeg==0.5.1
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20

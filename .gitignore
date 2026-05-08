@@ -1,0 +1,65 @@
+# Local/editor/agent config
+.roo/
+.vscode/
+.idea/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.venv-fish/
+.venv-silero/
+xtts_api/.venv/
+
+# Secrets and local environment files
+.env
+.env.*
+*.local
+*.secret
+*token*
+*credentials*
+
+# ComfyUI portable bundle and runtime/model installs
+ComfyUI_windows_portable/
+fish_speech_runtime/
+1/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.bin
+*.gguf
+
+# Generated audio/media outputs and uploads
+outputs/
+**/outputs/
+**/uploads/
+silero_tts_api/outputs/
+xtts_api/outputs/
+xtts_api/studio_projects/outputs/
+xtts_api/studio_projects/uploads/
+xtts_api/studio_projects/projects/*/outputs/
+xtts_api/studio_projects/projects/*/uploads/
+fish_speech_api/reference_audio/
+xtts_api/reference_audio/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+*.local.*
+2.3.0
+fish_speech_api/config.json
+fish_speech_api/reference_downloads_page.html
+xtts_api/reference_downloads_page.html
+xtts_api/studio_projects/*.json
+xtts_api/studio_projects/projects/*/project.json

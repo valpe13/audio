@@ -1,0 +1,80 @@
+{
+  "host": "127.0.0.1",
+  "port": 7865,
+  "output_dir": "outputs",
+  "backend": "placeholder",
+  "fish_speech": {
+    "repo_dir": "C:/openaudio_s1mini_runtime/Fish-Speech",
+    "venv_python": "C:/openaudio_s1mini_runtime/venv/Scripts/python.exe",
+    "checkpoint_dir": "C:/openaudio_s1mini_runtime/Fish-Speech/checkpoints/openaudio-s1-mini",
+    "codec_checkpoint": "C:/openaudio_s1mini_runtime/Fish-Speech/checkpoints/openaudio-s1-mini/codec.pth",
+    "decoder_config_name": "modded_dac_vq",
+    "device": "cuda",
+    "half": true,
+    "compile": false,
+    "max_new_tokens": 768,
+    "chunk_length": 420,
+    "iterative_prompt": true,
+    "temperature": 0.55,
+    "top_p": 0.65,
+    "fixed_chunk_seed": true,
+    "timeout_seconds": 900,
+    "fallback_to_placeholder": false,
+    "add_speaker_tag": false,
+    "default_language": "ru",
+    "reference_audio": "",
+    "reference_text": "",
+    "voice_prompt": "Мягкий спокойный женский голос. Русская речь без английского акцента, ровный темп, тёплая интонация рассказчицы.",
+    "prompt_prefix_as_text": false,
+    "use_prompt_audio": false
+  },
+  "realism": {
+    "preset": "sleep_safe",
+    "breath_sample": "",
+    "presets": {
+      "sleep_safe": {
+        "enabled": true,
+        "micro_pauses": true,
+        "micro_pause_min_ms": 120,
+        "micro_pause_max_ms": 420,
+        "loudness_variation_db": 0.35,
+        "pitch_drift_percent": 0.35,
+        "breath_injection": true,
+        "breath_amount": 0.04,
+        "breath_in_pause_probability": 0.08,
+        "room_tone": true,
+        "room_tone_db": -62.0,
+        "master_peak": 0.82
+      },
+      "natural_lecture": {
+        "enabled": true,
+        "micro_pauses": true,
+        "micro_pause_min_ms": 100,
+        "micro_pause_max_ms": 520,
+        "loudness_variation_db": 0.75,
+        "pitch_drift_percent": 0.65,
+        "breath_injection": true,
+        "breath_amount": 0.14,
+        "breath_in_pause_probability": 0.18,
+        "room_tone": true,
+        "room_tone_db": -58.0,
+        "master_peak": 0.86
+      },
+      "experimental_realism": {
+        "enabled": true,
+        "micro_pauses": true,
+        "micro_pause_min_ms": 90,
+        "micro_pause_max_ms": 650,
+        "loudness_variation_db": 1.1,
+        "pitch_drift_percent": 1.0,
+        "breath_injection": true,
+        "breath_amount": 0.28,
+        "breath_in_pause_probability": 0.32,
+        "room_tone": true,
+        "room_tone_db": -55.0,
+        "master_peak": 0.88
+      }
+    }
+  }
+}
+

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XTTS Studio</title>
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-08-cachedecode-scope-header-fix-v1" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>XTTS Studio</h1>
+        <p>Local browser UI for chunked XTTS v2 generation and final WAV export.</p>
+        <p id="currentProjectInfo" class="currentProjectInfo">Project: loading…</p>
+        <p id="buildInfo" class="buildInfo">Build: checking…</p>
+        <div id="buildWarning" class="buildWarning" hidden>
+          <span id="buildWarningText"></span>
+          <button id="manualReloadBtn" type="button" class="secondary">Reload page manually</button>
+        </div>
+      </div>
+      <div id="status">Loading…</div>
+    </header>
+
+    <aside id="chunkNavigator" class="chunkNavigator" aria-label="Chunk navigator">
+      <h2>Chunks</h2>
+      <div id="chunkNavList" class="chunkNavList">No chunks.</div>
+    </aside>
+
+    <aside id="musicLibraryPanel" class="musicLibraryPanel" aria-label="Music library">
+      <div class="row between wrap">
+        <h2>Music library</h2>
+        <button id="musicLoopChainBtn" type="button" class="secondary">Loop chain to end</button>
+      </div>
+      <label>Import music files <input id="musicLibraryUpload" type="file" accept="audio/*" multiple /></label>
+      <label>Add path / URL
+        <input id="musicLibraryPath" type="text" placeholder="xtts_api/studio_projects/uploads/music.mp3" />
+      </label>
+      <div class="row wrap">
+        <button id="musicLibraryAddPathBtn" type="button" class="secondary">Add source</button>
+        <button id="musicLibraryAddAtCursorBtn" type="button">Add selected at playhead</button>
+        <button id="musicLibraryAppendBtn" type="button" class="secondary">Append selected</button>
+      </div>
+      <div id="musicLibraryList" class="musicLibraryList">No music sources.</div>
+      <p class="musicLibraryHint">Drag a source onto the Music / audio lane, or use the fallback buttons above.</p>
+    </aside>
+
+    <main>
+      <nav class="screenTabs" aria-label="Central screen modes">
+        <button id="projectsModeTab" type="button" class="screenTab secondary">Projects</button>
+        <button id="projectModeTab" type="button" class="screenTab active">Project</button>
+        <button id="chunkModeTab" type="button" class="screenTab secondary">Chunk</button>
+      </nav>
+
+      <div id="projectsScreen" class="screenMode">
+        <section class="panel grid two">
+          <div>
+            <h2>Projects</h2>
+            <div id="projectsList" class="projectsList">Loading projects…</div>
+          </div>
+          <div>
+            <h2>New project</h2>
+            <label>Project name <input id="newProjectName" type="text" placeholder="My audiobook project" /></label>
+            <label>Initial text <textarea id="newProjectText" placeholder="Optional starting text…"></textarea></label>
+            <button id="createProjectBtn" type="button">Create and open</button>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Import text into selected project</h2>
+          <div class="row wrap">
+            <label>Text file <input id="importTextFile" type="file" accept=".txt,text/plain" /></label>
+            <label>Mode <select id="importTextMode"><option value="replace">Replace</option><option value="append">Append</option></select></label>
+            <button id="importTextBtn" type="button">Import text</button>
+          </div>
+          <label>Or paste text <textarea id="importTextPaste" placeholder="Paste text here, or choose a .txt file above…"></textarea></label>
+        </section>
+      </div>
+
+      <div id="projectScreen" class="screenMode active">
+        <section class="panel grid two">
+          <div>
+            <h2>1. Text</h2>
+            <textarea id="fullText" placeholder="Введите полный русский текст здесь…"></textarea>
+            <div class="row wrap">
+              <label>Max chars <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
+              <label>Random pause after min, sec <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.85" /></label>
+              <label>Random pause after max, sec <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.85" /></label>
+              <button id="splitBtn" type="button">Split into chunks</button>
+              <button id="saveTextBtn" type="button" class="secondary">Save text</button>
+            </div>
+          </div>
+          <div>
+            <h2>2. Voice / Music</h2>
+            <label>Reference WAV path
+              <input id="referencePath" type="text" />
+            </label>
+            <label>Music path
+              <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
+            </label>
+            <div class="row wrap">
+              <label>Upload music <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
+              <button id="addMusicSourceBtn" type="button" class="secondary">Add audio source/clip from path</button>
+              <button id="saveSettingsBtn" type="button" class="secondary">Save settings</button>
+            </div>
+            <div class="sliders">
+              <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
+              <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="row between wrap">
+            <h2>3. Project actions</h2>
+            <div class="row wrap">
+              <button id="generateAllBtn" type="button">Generate missing chunks</button>
+              <button id="playSequenceBtn" type="button" class="secondary">Play generated sequence</button>
+              <button id="stopSequenceBtn" type="button" class="secondary">Stop sequence</button>
+              <button id="exportBtn" type="button">Export final WAV</button>
+            </div>
+          </div>
+          <div id="sequenceStatus" class="sequenceStatus">Stopped</div>
+          <div id="timeline" class="timeline"></div>
+          <p class="chunkOverviewHint">Select a numbered chunk in the left list to edit its text, pause_after, generation, and selected audio version.</p>
+        </section>
+
+        <section class="panel">
+          <div class="row between wrap">
+            <h2>4. Generation queue</h2>
+              <button id="refreshQueueBtn" type="button" class="secondary">Refresh queue</button>
+              <button id="clearCompletedQueueBtn" type="button" class="secondary">Clear completed</button>
+          </div>
+          <div class="progressWrap">
+            <div id="progressBar" class="progressBar"><div id="progressFill"></div></div>
+            <div id="progressText">Idle</div>
+          </div>
+          <div id="queueList" class="queueList">No tasks.</div>
+        </section>
+
+        <section class="panel">
+          <h2>5. Export</h2>
+          <div id="exportResult">No export yet.</div>
+        </section>
+      </div>
+
+      <div id="chunkScreen" class="screenMode">
+        <section class="panel chunkDetailPanel">
+          <div class="row between wrap">
+            <h2>Selected chunk</h2>
+            <button id="backToProjectBtn" type="button" class="secondary">Back to Project</button>
+          </div>
+          <div id="chunkDetailPlaceholder" class="chunkPlaceholder">Select a chunk from the left list to edit text, pause_after, generate versions, and choose the version used for export.</div>
+          <div id="chunks" class="chunkDetailHost"></div>
+        </section>
+      </div>
+    </main>
+
+    <div id="timelineTransport" class="timelineTransport" aria-label="Timeline preview transport">
+      <div class="transportTop row between wrap">
+        <div>
+          <strong>Timeline preview</strong>
+          <span id="transportTime" class="transportTime">00:00.000 / 00:00.000</span>
+        </div>
+        <div class="row wrap">
+          <button id="zoomOutBtn" type="button" class="secondary">−</button>
+          <span id="zoomValue" class="transportTime">96 px/s</span>
+          <button id="zoomInBtn" type="button" class="secondary">+</button>
+          <button id="zoomFitBtn" type="button" class="secondary">Fit</button>
+          <button id="playFromCursorBtn" type="button">Play from cursor</button>
+          <button id="stopPreviewBtn" type="button" class="secondary">Stop</button>
+          <button id="resetVoiceAutomationBtn" type="button" class="secondary">Reset voice curve</button>
+          <button id="resetMusicAutomationBtn" type="button" class="secondary">Reset music curve</button>
+        </div>
+      </div>
+      <div id="timelineScroller" class="timelineScroller">
+        <div id="timelineWorkspace" class="timelineWorkspace">
+          <input id="timelineScrubber" class="timelineScrubber" type="range" min="0" max="0" step="0.001" value="0" />
+          <div id="timelineLaneWrap" class="timelineLaneWrap">
+            <div id="transportPlayhead" class="transportPlayhead" title="Drag voice lane to seek"></div>
+            <div class="laneLabel">Voice chunks / pauses</div>
+            <div id="voiceTimelineLane" class="timelineLane voiceLane"></div>
+            <div class="laneLabel">Voice volume automation</div>
+            <div id="voiceAutomationLane" class="timelineLane voiceAutomationLane"></div>
+            <div class="laneLabel musicLaneHead"><span>Music lanes</span></div>
+            <div id="musicLanesHost" class="musicLanesHost"></div>
+            <div class="laneLabel musicLaneHead"><span>Music volume automation</span></div>
+            <div id="musicTimelineLane" class="timelineLane musicLane musicAutomationLane"></div>
+          </div>
+        </div>
+      </div>
+      <div class="musicTransport row between wrap">
+        <span id="musicLaneLabel">Music: none loaded</span>
+        <div id="musicClipControls" class="musicClipControls row wrap"></div>
+        <label class="inlineSlider">Music volume
+          <input id="transportMusicVolume" type="range" min="0" max="2" step="0.01" value="0.18" />
+          <span id="transportMusicVolumeValue">0.18</span>
+        </label>
+        <span id="automationPointReadout" class="automationPointReadout">Music volume automation</span>
+      </div>
+      <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume lane to add a point; Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
+    </div>
+
+    <script src="/studio/app.js?v=2026-05-08-cachedecode-scope-header-fix-v1"></script>
+  </body>
+</html>
+

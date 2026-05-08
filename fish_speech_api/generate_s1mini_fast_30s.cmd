@@ -1,0 +1,3 @@
+@echo off
+set PYTHONUTF8=1
+"C:\openaudio_s1mini_runtime\venv\Scripts\python.exe" fish_speech_api\audio_workflow.py --config fish_speech_api\config.json --text-file fish_speech_api\short_s1mini_ru_soft_female_30s.txt --output fish_speech_api\outputs\s1mini_russian_30s_soft_female_fast_test.wav --seed 42 --max-chars 900 --preset sleep_safe --breath-amount 0.03 --pitch-drift 0 --loudness-variation 0.18 --room-tone on --temperature 0.55 --top-p 0.65 --fixed-chunk-seed --reference-audio fish_speech_api\reference_audio\female_ja_pozzhe_napishu.wav --reference-text "Ну, короче, я сейчас немного занята, я позже напишу." --no-mp3

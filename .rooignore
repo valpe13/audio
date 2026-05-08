@@ -1,0 +1,2 @@
+# Exclude ComfyUI portable bundle from Roo Code indexing/context scanning.
+ComfyUI_windows_portable/
