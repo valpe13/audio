@@ -29,6 +29,8 @@ xtts_api/.venv/
 # Installer scripts recreate/download runtime assets locally when needed.
 ComfyUI_windows_portable/
 fish_speech_runtime/
+release_assets/
+/audio/
 1/
 *.pth
 *.pt

@@ -4,6 +4,20 @@
 
 The active workflow is the standalone XTTS Studio in [`xtts_api/`](xtts_api/). It is launched by [`run_audio_stack.cmd`](run_audio_stack.cmd) and does **not** require [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) for normal XTTS generation. The ComfyUI folders in this repository are optional bridges for older/alternate workflows.
 
+### One-file installer for end users
+
+Give a fresh Windows user only [`audio_xtts_universal_installer.cmd`](audio_xtts_universal_installer.cmd). They can put it into an empty folder and run it. The installer will:
+
+- install [`Python 3.10.11`](README.md) for the current user if [`py -3.10`](README.md) is not available;
+- download this repository from [`https://github.com/valpe13/audio`](https://github.com/valpe13/audio) into [`audio/`](audio/);
+- download [`xtts_assets_v1.zip`](https://github.com/valpe13/audio/releases/download/xtts-assets-v1/xtts_assets_v1.zip) from GitHub Releases;
+- verify the release asset SHA256 checksum;
+- extract the XTTS v2 model into the normal Coqui cache at [`%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2`](README.md);
+- extract the default Natalia Shtin reference into [`xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav`](xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav);
+- run [`install_models.cmd --no-pause`](install_models.cmd) to create [`xtts_api/.venv/`](xtts_api/.venv/) and install Python libraries.
+
+After it finishes, start [`audio/run_audio_stack.cmd`](audio/run_audio_stack.cmd) and choose option `1`.
+
 From a fresh clone on Windows:
 
 ```bat
