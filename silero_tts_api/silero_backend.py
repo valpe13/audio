@@ -13,6 +13,12 @@ from typing import Any
 import numpy as np
 import torch
 
+try:
+    from xtts_api.pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
+except ImportError:  # pragma: no cover - standalone/package fallback
+    load_pronunciation_dictionary = None
+    preprocess_tts_text = None
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = BASE_DIR / "outputs"
@@ -22,6 +28,7 @@ DEFAULT_SPEAKER = "baya"
 DEFAULT_SAMPLE_RATE = 48000
 DEFAULT_DEVICE = "cpu"
 KNOWN_RU_SPEAKERS = ["aidar", "baya", "kseniya", "xenia", "eugene", "random"]
+DEFAULT_PRONUNCIATION_DICTIONARY = BASE_DIR.parent / "xtts_api" / "pronunciation_dictionary.json"
 
 
 REALISM_PRESETS: dict[str, dict[str, Any]] = {
@@ -186,6 +193,13 @@ class SileroTTSBackend:
     ) -> SileroResult:
         if not text or not text.strip():
             raise ValueError("Text is empty")
+
+        if load_pronunciation_dictionary and preprocess_tts_text:
+            text = preprocess_tts_text(
+                text,
+                load_pronunciation_dictionary(DEFAULT_PRONUNCIATION_DICTIONARY),
+                stress_mark_style="plus",
+            )
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)

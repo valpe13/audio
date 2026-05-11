@@ -17,6 +17,12 @@ try:
 except ImportError:  # pragma: no cover - package-style imports
     from .fish_backend import FishSpeechBackend, TTSRequest
 
+try:
+    from xtts_api.pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
+except ImportError:  # pragma: no cover - standalone execution from repo root or package path
+    load_pronunciation_dictionary = None
+    preprocess_tts_text = None
+
 
 SAMPLE_RATE = 24_000
 SAMPLE_WIDTH = 2
@@ -119,21 +125,12 @@ def clean_russian_text(text: str) -> str:
     for pattern, replacement in abbreviation_replacements.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-    stress_replacements = {
-        "Плечи": "Пле́чи",
-        "выдохом": "вы́дохом",
-        "выдох": "вы́дох",
-        "вдох": "вдох",
-        "ровнее": "ровне́е",
-        "плечи": "пле́чи",
-        "вечерний": "вече́рний",
-        "комнату": "ко́мнату",
-        "слушать": "слу́шать",
-        "напряжение": "напряже́ние",
-        "следующим": "сле́дующим",
-    }
-    for word, replacement in stress_replacements.items():
-        text = re.sub(rf"(?<![А-Яа-яЁё]){word}(?![А-Яа-яЁё])", replacement, text, flags=re.IGNORECASE)
+    if load_pronunciation_dictionary and preprocess_tts_text:
+        dictionary_path = Path(__file__).resolve().parent.parent / "xtts_api" / "pronunciation_dictionary.json"
+        try:
+            text = preprocess_tts_text(text, load_pronunciation_dictionary(dictionary_path), stress_mark_style="acute")
+        except Exception:
+            text = preprocess_tts_text(text, {}, stress_mark_style="acute")
 
     text = re.sub(r"(?<=\d)\s*%", " процентов", text)
     text = re.sub(r"№\s*", "номер ", text)

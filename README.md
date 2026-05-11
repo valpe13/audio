@@ -18,6 +18,40 @@ Give a fresh Windows user only [`audio_xtts_universal_installer.cmd`](audio_xtts
 
 After it finishes, start [`audio/run_audio_stack.cmd`](audio/run_audio_stack.cmd) and choose option `1`.
 
+Fresh one-file install from an empty folder:
+
+```bat
+audio_xtts_universal_installer.cmd
+```
+
+Update an existing one-file install in-place:
+
+```bat
+audio_xtts_universal_installer.cmd --no-pause
+```
+
+The universal installer treats an existing [`audio/`](audio/) folder as an update. It preserves local user data and machine-specific state, including [`xtts_api/studio_projects/`](xtts_api/studio_projects/), [`xtts_api/reference_audio/`](xtts_api/reference_audio/), [`xtts_api/.venv/`](xtts_api/.venv/), [`.installer_cache/`](.installer_cache/), [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/), local configs, and [`project.secrets.json`](README.md) files. Unless [`--skip-assets`](README.md) is supplied, it re-runs [`install_models.cmd --no-pause`](install_models.cmd) after updating source code; that script is intended to be idempotent and reuses existing dependencies/models when they are already present.
+
+Optional ComfyUI video resources can be installed during setup/update:
+
+```bat
+audio_xtts_universal_installer.cmd --with-video
+```
+
+or separately after the base install:
+
+```bat
+install_optional_video_resources.cmd
+```
+
+Optional video setup calls the existing AnimateDiff/HotshotXL helpers with [`--yes`](README.md) where they support noninteractive operation. It warns if [`ComfyUI_windows_portable/ComfyUI/main.py`](ComfyUI_windows_portable/ComfyUI/main.py) is missing and never fails the base XTTS install if optional video downloads fail. [`xtts_api/install_svd_xt_model.cmd`](xtts_api/install_svd_xt_model.cmd) remains intentionally interactive because Hugging Face may require accepting model terms or setting [`HF_TOKEN`](README.md).
+
+Use [`--skip-assets`](README.md) only when you want to update source files without downloading/rechecking XTTS release assets or running [`install_models.cmd`](install_models.cmd):
+
+```bat
+audio_xtts_universal_installer.cmd --skip-assets --no-pause
+```
+
 From a fresh clone on Windows:
 
 ```bat
@@ -39,6 +73,22 @@ Choose option `1` in [`run_audio_stack.cmd`](run_audio_stack.cmd) to open XTTS S
 - preloads Coqui model [`tts_models/multilingual/multi-dataset/xtts_v2`](README.md) into the normal per-user Coqui cache, typically [`%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2`](README.md).
 
 If you specifically need ComfyUI later, install or unpack it separately into [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) and use launcher options `4` or `5`. The current XTTS Studio server in [`xtts_api/studio_server.py`](xtts_api/studio_server.py) runs directly through Coqui [`TTS`](xtts_api/requirements.txt:1), not through ComfyUI or custom nodes.
+
+### Downloads, local data, and publication safety
+
+- The universal installer downloads source code from [`https://github.com/valpe13/audio`](https://github.com/valpe13/audio) using [`git`](README.md) when available, otherwise from the repository ZIP.
+- Required XTTS bootstrap assets come from GitHub Release [`xtts-assets-v1`](https://github.com/valpe13/audio/releases/tag/xtts-assets-v1) and are SHA256-verified before extraction.
+- [`install_models.cmd`](install_models.cmd) may download Coqui XTTS v2 into the per-user Coqui cache under [`%LOCALAPPDATA%\tts`](README.md) and may install Python packages from PyPI/PyTorch indexes into [`xtts_api/.venv/`](xtts_api/.venv/).
+- Optional video helpers download large models/nodes from Hugging Face or upstream Git repositories as documented by each helper; these are local runtime assets, not repository source.
+- Secrets, API keys, local configs, generated media, uploads, project outputs, virtual environments, portable ComfyUI, and model files are intentionally ignored by [`.gitignore`](.gitignore).
+
+GitHub publication checklist before pushing a release:
+
+1. Run [`git status --short`](README.md) and confirm only source/docs/scripts intended for publication are modified or untracked.
+2. Run [`git branch --show-current`](README.md) and [`git remote -v`](README.md) to confirm the target branch and repository.
+3. Confirm no [`project.secrets.json`](README.md), [`fish_speech_api/config.json`](fish_speech_api/config.json), API tokens, local model files, generated outputs, uploads, or [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) files are staged.
+4. If needed, inspect staged content with [`git diff --cached --name-only`](README.md) and [`git diff --cached`](README.md) before committing.
+5. Commit and push only after explicit human approval for the exact staged file list and target branch.
 
 This workspace contains a complete local long-form audio pipeline:
 

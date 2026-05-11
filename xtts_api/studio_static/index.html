@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-08-cachedecode-scope-header-fix-v1" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-11-grok-loop-postprocess-v2" />
   </head>
   <body>
     <header>
       <div>
         <h1>XTTS Studio</h1>
-        <p>Local browser UI for chunked XTTS v2 generation and final WAV export.</p>
+        <p>Local browser UI for chunked XTTS v2 generation and audio/video export.</p>
         <p id="currentProjectInfo" class="currentProjectInfo">Project: loading…</p>
         <p id="buildInfo" class="buildInfo">Build: checking…</p>
         <div id="buildWarning" class="buildWarning" hidden>
@@ -22,8 +22,13 @@
     </header>
 
     <aside id="chunkNavigator" class="chunkNavigator" aria-label="Chunk navigator">
-      <h2>Chunks</h2>
+      <h2>Navigation</h2>
+      <div class="sideMiniTabs" aria-label="Side panel mode">
+        <button id="chunksSideTab" type="button" class="sideMiniTab active">Чанки</button>
+        <button id="groupsSideTab" type="button" class="sideMiniTab secondary">Группы</button>
+      </div>
       <div id="chunkNavList" class="chunkNavList">No chunks.</div>
+      <div id="groupNavList" class="groupNavList" hidden>No groups.</div>
     </aside>
 
     <aside id="musicLibraryPanel" class="musicLibraryPanel" aria-label="Music library">
@@ -49,6 +54,7 @@
         <button id="projectsModeTab" type="button" class="screenTab secondary">Projects</button>
         <button id="projectModeTab" type="button" class="screenTab active">Project</button>
         <button id="chunkModeTab" type="button" class="screenTab secondary">Chunk</button>
+        <button id="previewModeTab" type="button" class="screenTab secondary">Превью</button>
       </nav>
 
       <div id="projectsScreen" class="screenMode">
@@ -82,20 +88,59 @@
             <textarea id="fullText" placeholder="Введите полный русский текст здесь…"></textarea>
             <div class="row wrap">
               <label>Max chars <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
-              <label>Random pause after min, sec <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.85" /></label>
-              <label>Random pause after max, sec <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.85" /></label>
+              <label>Base sentence pause min, sec <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
+              <label>Base sentence pause max, sec <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
               <button id="splitBtn" type="button">Split into chunks</button>
               <button id="saveTextBtn" type="button" class="secondary">Save text</button>
             </div>
           </div>
           <div>
-            <h2>2. Voice / Music</h2>
+            <h2>2. Voice / Music / Images</h2>
             <label>Reference WAV path
               <input id="referencePath" type="text" />
             </label>
             <label>Music path
               <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
             </label>
+            <div class="xaiKeySettings">
+              <label>Grok / xAI API key
+                <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
+              </label>
+              <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
+              <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
+              <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
+              <label>Grok stress model override
+                <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
+              </label>
+              <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
+            </div>
+            <details class="ttsStressSettings">
+              <summary>TTS backend / Russian stress control</summary>
+              <div class="grid two imageSettingsGrid">
+                <label>TTS backend
+                  <select id="ttsBackend">
+                    <option value="xtts">XTTS v2 (default voice clone, weak stress control)</option>
+                    <option value="silero">Silero RU API (stress-aware + notation)</option>
+                  </select>
+                </label>
+                <label>Stress mark style
+                  <select id="ttsStressMarkStyle">
+                    <option value="acute">acute: молоко́</option>
+                    <option value="plus">plus: молок+о</option>
+                    <option value="auto">auto/backend (Silero uses plus)</option>
+                    <option value="plain">plain / strip stress marks</option>
+                  </select>
+                </label>
+                <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Enable pronunciation dictionary/stress preprocessing</label>
+                <label>Dictionary path <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
+                <label>Silero API URL <input id="sileroApiUrl" type="text" placeholder="http://127.0.0.1:7866" /></label>
+                <label>Silero speaker <input id="sileroSpeaker" type="text" placeholder="baya" /></label>
+                <label>Silero sample rate <input id="sileroSampleRate" type="number" min="8000" max="96000" step="1000" value="48000" /></label>
+                <label>Silero realism preset <input id="sileroRealismPreset" type="text" placeholder="sleep_safe" /></label>
+                <label class="inlineCheck"><input id="sileroRealismEnabled" type="checkbox" checked /> Enable Silero realism post-processing</label>
+              </div>
+              <p class="imageResolvedSettings">For strict Russian stress control, use the Silero backend and plus notation. XTTS/Fish-style neural backends may ignore acute marks; Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
+            </details>
             <div class="row wrap">
               <label>Upload music <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
               <button id="addMusicSourceBtn" type="button" class="secondary">Add audio source/clip from path</button>
@@ -105,6 +150,176 @@
               <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
               <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
             </div>
+            <section class="imageSimpleSettings" aria-label="RealVisXL image settings">
+              <div class="imageSimpleHead">
+                <div>
+                  <h3>Картинки RealVisXL</h3>
+                  <p>Одна модель: RealVisXL через ComfyUI. Выберите только качество, ориентацию и стиль.</p>
+                </div>
+                <span class="realvisxlBadge">RealVisXL</span>
+              </div>
+              <label class="qualitySliderLabel">Качество
+                <input id="imageQualityPreset" type="range" min="0" max="2" step="1" value="1" />
+                <span id="imageQualityLabel">Баланс</span>
+              </label>
+              <div class="qualitySegments" aria-label="Quality presets">
+                <button type="button" class="secondary imageQualityButton" data-quality="fast">Быстро</button>
+                <button type="button" class="secondary imageQualityButton active" data-quality="balanced">Баланс</button>
+                <button type="button" class="secondary imageQualityButton" data-quality="quality">Качество</button>
+              </div>
+              <div class="grid two imageSimpleGrid">
+                <label>Ориентация
+                  <select id="imageAspectRatio">
+                    <option value="vertical">Вертикально</option>
+                    <option value="horizontal">Горизонтально</option>
+                  </select>
+                </label>
+                <label>Стиль
+                  <select id="imageStylePreset">
+                    <option value="sleep_documentary">Сонный документальный</option>
+                    <option value="cinematic_realism">Кинематографичный реализм</option>
+                    <option value="ancient_history">Древняя история</option>
+                    <option value="soft_painting">Мягкая живопись</option>
+                    <option value="night_firelight">Ночь и огонь</option>
+                  </select>
+                </label>
+              </div>
+              <p id="imageResolvedSettings" class="imageResolvedSettings">RealVisXL · balanced · 896×1152 · 22 steps</p>
+            </section>
+            <section class="videoI2vSettings" aria-label="Video animation backend settings">
+              <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
+              <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
+              <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
+              <label class="qualitySliderLabel">Video quality
+                <input id="videoI2vQualityPreset" type="range" min="0" max="2" step="1" value="1" />
+                <span id="videoI2vQualityLabel">Баланс</span>
+              </label>
+              <div class="qualitySegments" aria-label="SVD quality presets">
+                <button type="button" class="secondary videoI2vQualityButton" data-quality="fast">Быстро</button>
+                <button type="button" class="secondary videoI2vQualityButton active" data-quality="balanced">Баланс</button>
+                <button type="button" class="secondary videoI2vQualityButton" data-quality="quality">Качество</button>
+              </div>
+              <p id="videoI2vResolvedSettings" class="imageResolvedSettings">SVD-XT · balanced · 25 frames · 6 fps · 20 steps</p>
+              <div class="grid two imageSettingsGrid">
+                <label>Motion style
+                  <select id="videoI2vMotionStyle">
+                    <option value="object_locked">Object motion — locked camera, low drift</option>
+                    <option value="still_life">Still life — minimal drift</option>
+                    <option value="ambient_nature">Ambient nature — subtle environment</option>
+                    <option value="human_subtle">Human subtle — very small body/face drift</option>
+                    <option value="cinematic_slow">Cinematic slow — controlled slow motion</option>
+                    <option value="landscape_long_loop">Landscape long loop — more unique motion, lower steps</option>
+                  </select>
+                </label>
+                <label>Workflow / video backend (модель генерации анимации)
+                  <select id="videoI2vWorkflowMode">
+                    <option value="generated_svd">SVD/SVD-XT local (generated_svd, stable default)</option>
+                    <option value="generated_animatediff">AnimateDiff SD1.5 local (generated_animatediff, experimental)</option>
+                    <option value="generated_hotshotxl">HotshotXL / AnimateDiff SDXL local (generated_hotshotxl, experimental)</option>
+                    <option value="generated_grok_imagine_video">Grok Imagine Video (xAI API)</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <label>Video checkpoint / model alias <input id="videoI2vModelCheckpoint" type="text" placeholder="svd_xt.safetensors" /></label>
+                <label>Target clip duration, sec <input id="videoI2vTargetDurationSec" type="number" min="2" max="60" step="1" value="20" /></label>
+                <label class="inlineCheck"><input id="videoI2vPingpong" type="checkbox" checked /> Ping-pong generated frames before repeats</label>
+                <label>Loop playback speed <input id="videoI2vPreviewPlaybackRate" type="range" min="0.25" max="2" step="0.05" value="1" /><span id="videoI2vPreviewPlaybackRateValue">1.00×</span></label>
+                <label>Frames <input id="videoI2vFrames" type="number" min="2" max="256" step="1" value="25" /></label>
+                <label>FPS <input id="videoI2vFps" type="number" min="1" max="60" step="1" value="6" /></label>
+                <label>Motion bucket <input id="videoI2vMotionBucketId" type="number" min="1" max="1023" step="1" value="127" /></label>
+                <label>Augmentation <input id="videoI2vAugmentationLevel" type="number" min="0" max="1" step="0.01" value="0.02" /></label>
+                <label>Min CFG <input id="videoI2vMinCfg" type="number" min="0" max="30" step="0.1" value="1.0" /></label>
+                <label>CFG <input id="videoI2vCfg" type="number" min="0" max="30" step="0.1" value="2.5" /></label>
+                <label>Steps <input id="videoI2vSteps" type="number" min="1" max="150" step="1" value="20" /></label>
+                <label>Sampler <input id="videoI2vSampler" type="text" placeholder="euler" /></label>
+                <label>Scheduler <input id="videoI2vScheduler" type="text" placeholder="normal" /></label>
+              </div>
+              <fieldset id="videoI2vGrokSettings" class="videoI2vGrokSettings">
+                <legend>Grok Imagine Video settings</legend>
+                <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
+                <p class="videoI2vGrokWarning">Hosted xAI image-to-video backend. Queuing generation may make a paid API call. Use diagnostics before bulk generation; this UI never runs generation until you press group video buttons.</p>
+                <div class="grid two imageSettingsGrid">
+                  <label>Model <input id="videoI2vGrokModel" type="text" value="grok-imagine-video" /></label>
+                  <label>Duration, sec <input id="videoI2vGrokDurationSec" type="number" min="1" max="30" step="1" value="5" /></label>
+                  <label>Resolution
+                    <select id="videoI2vGrokResolution">
+                      <option value="480p">480p (confirmed fast/default)</option>
+                      <option value="720p">720p (confirmed higher quality)</option>
+                    </select>
+                  </label>
+                  <label>Aspect
+                    <select id="videoI2vGrokAspectRatioMode">
+                      <option value="auto">auto from source image orientation</option>
+                      <option value="16:9">16:9 horizontal</option>
+                      <option value="9:16">9:16 vertical</option>
+                    </select>
+                  </label>
+                  <label>Loop postprocess
+                    <select id="videoI2vGrokLoopPostprocess">
+                      <option value="pingpong">ping-pong after download (most seamless)</option>
+                      <option value="crossfade">crossfade last-to-first</option>
+                      <option value="off">off (raw Grok file)</option>
+                    </select>
+                  </label>
+                  <label>Crossfade, sec <input id="videoI2vGrokCrossfadeSec" type="number" min="0.1" max="2" step="0.1" value="0.5" /></label>
+                </div>
+              </fieldset>
+              <p class="imageResolvedSettings">For less camera movement, use “Object motion — locked camera” or “Ambient nature” and keep group animation prompts explicit: locked camera, static camera, no camera movement; animate objects only, leaves swaying, grass moving, water ripples, smoke drifting, fire flicker. Negative prompt terms should include camera pan, camera zoom, camera orbit, dolly, drift, whole image moving. SVD may still drift because it is image-conditioned; AnimateDiff can follow text/object motion better, but usually needs masks, ControlNet, or IPAdapter for reliable isolated object motion.</p>
+              <p class="imageResolvedSettings">Target duration extends the generated MP4 cheaply with VideoHelperSuite repeats/ping-pong of the sampled motion; it does not create extra unique SVD frames. For 1-minute landscape loops, use “Landscape long loop” or raise Frames manually: it creates more unique SVD frames but lowers steps and may be slower or slightly softer. Loop playback speed affects only browser preview video elements, not the generated file.</p>
+              <p class="imageResolvedSettings">Practical quality path: keep SVD-XT for mass production and RealVisXL image fidelity; use SD1.5 AnimateDiff only for experiments where prompt/object motion matters more than matching the source image. Use generated_hotshotxl only after checking /api/comfyui/animatediff-sdxl/diagnostics: it needs AnimateDiff-Evolved, VideoHelperSuite, RealVisXL/another SDXL checkpoint, and an SDXL-compatible motion model such as HotshotXL under ComfyUI/models/animatediff_models.</p>
+              <p class="imageResolvedSettings">Grok Imagine Video uses /api/xai/imagine-video/diagnostics for setup checks. Confirmed settings are model grok-imagine-video, aspect ratios 16:9/9:16, and resolutions 480p/720p; 1080p is not exposed until official docs confirm it. Prompt-only looping is not guaranteed, so Grok videos default to ffmpeg ping-pong post-processing after download; use crossfade only when forward motion is more important than seam reliability.</p>
+            </section>
+            <details class="imageSettings">
+              <summary>Advanced ComfyUI</summary>
+              <div class="grid two imageSettingsGrid">
+                <label>Provider
+                  <select id="imageProvider">
+                    <option value="placeholder">placeholder</option>
+                    <option value="comfyui">comfyui</option>
+                  </select>
+                </label>
+                <label>Model
+                  <select id="imageModel">
+                    <option value="sdxl">sdxl</option>
+                    <option value="realvisxl">realvisxl</option>
+                    <option value="juggernautxl">juggernautxl</option>
+                    <option value="dreamshaperxl">dreamshaperxl</option>
+                    <option value="flux">flux</option>
+                    <option value="custom">custom</option>
+                  </select>
+                </label>
+                <label>Seed <input id="imageSeed" type="number" step="1" value="0" /></label>
+                <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
+                <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
+                <label>Negative preset <input id="imageNegativePreset" type="text" placeholder="default" /></label>
+                <label>Workflow mode
+                  <select id="imageWorkflowMode">
+                    <option value="generated">generated</option>
+                    <option value="template">template</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <label>Model checkpoint filename <input id="imageModelCheckpoint" type="text" placeholder="RealVisXL_V5.0_fp16.safetensors" /></label>
+                <label>Steps <input id="imageSteps" type="number" min="1" max="150" step="1" value="28" /></label>
+                <label>CFG <input id="imageCfg" type="number" min="0" max="30" step="0.1" value="6.5" /></label>
+                <label>Sampler <input id="imageSampler" type="text" placeholder="dpmpp_2m_sde" /></label>
+                <label>Scheduler <input id="imageScheduler" type="text" placeholder="karras" /></label>
+              </div>
+              <p id="imageFluxWorkflowNote" class="imageFluxWorkflowNote" hidden>FLUX generated workflow is not supported yet. Use template mode until the next implementation stage.</p>
+              <label>ComfyUI URL <input id="imageComfyuiUrl" type="text" placeholder="http://127.0.0.1:8188" /></label>
+              <label>ComfyUI path <input id="imageComfyuiPath" type="text" placeholder="ComfyUI_windows_portable" /></label>
+              <label>ComfyUI python <input id="imageComfyuiPython" type="text" placeholder="optional python executable" /></label>
+              <label>ComfyUI launch command <input id="imageComfyuiLaunchCmd" type="text" placeholder="optional backend autostart command" /></label>
+              <label class="inlineCheck"><input id="imageComfyuiAutostart" type="checkbox" /> Autostart ComfyUI</label>
+              <label>Workflow path <input id="imageWorkflowPath" type="text" placeholder="optional workflow JSON path" /></label>
+              <div class="comfyuiStatusPanel">
+                <div class="row wrap">
+                  <button id="checkComfyuiBtn" type="button" class="secondary">Check ComfyUI</button>
+                  <span id="comfyuiStatusBadge" class="comfyuiStatusBadge unknown">ComfyUI: not checked</span>
+                </div>
+                <div id="comfyuiStatusLine" class="comfyuiStatusLine">Use Check ComfyUI to query /api/comfyui/status.</div>
+              </div>
+            </details>
           </div>
         </section>
 
@@ -115,12 +330,12 @@
               <button id="generateAllBtn" type="button">Generate missing chunks</button>
               <button id="playSequenceBtn" type="button" class="secondary">Play generated sequence</button>
               <button id="stopSequenceBtn" type="button" class="secondary">Stop sequence</button>
-              <button id="exportBtn" type="button">Export final WAV</button>
+              <button id="exportBtn" type="button">Queue export</button>
             </div>
           </div>
           <div id="sequenceStatus" class="sequenceStatus">Stopped</div>
           <div id="timeline" class="timeline"></div>
-          <p class="chunkOverviewHint">Select a numbered chunk in the left list to edit its text, pause_after, generation, and selected audio version.</p>
+            <p class="chunkOverviewHint">Select a numbered chunk in the left list to edit its text, pause_after, generation, and selected audio version. Split pauses use this base range for sentence transitions; paragraph and section boundaries get longer natural pauses.</p>
         </section>
 
         <section class="panel">
@@ -138,6 +353,73 @@
 
         <section class="panel">
           <h2>5. Export</h2>
+          <div class="exportSettings grid two">
+            <label>Export type
+              <select id="exportType">
+                <option value="audio">Audio only</option>
+                <option value="video">Video with audio</option>
+              </select>
+            </label>
+            <label>Audio format
+              <select id="exportAudioFormat">
+                <option value="wav">WAV PCM</option>
+                <option value="mp3">MP3</option>
+                <option value="m4a">M4A / AAC</option>
+                <option value="flac">FLAC</option>
+                <option value="ogg">OGG / Opus</option>
+              </select>
+            </label>
+            <label>Audio bitrate <input id="exportAudioBitrate" type="text" value="192k" placeholder="192k" /></label>
+            <label>Sample rate
+              <select id="exportSampleRate">
+                <option value="">Keep project/source</option>
+                <option value="44100">44.1 kHz</option>
+                <option value="48000">48 kHz</option>
+              </select>
+            </label>
+            <label>Channels
+              <select id="exportChannels">
+                <option value="1">Mono</option>
+                <option value="2">Stereo duplicated</option>
+              </select>
+            </label>
+            <label>Video format
+              <select id="exportVideoFormat">
+                <option value="mp4">MP4 · H.264 + AAC</option>
+                <option value="webm">WebM · VP9 + Opus</option>
+                <option value="mov">MOV · H.264 + AAC</option>
+              </select>
+            </label>
+            <label>Orientation
+              <select id="exportOrientation">
+                <option value="auto">Auto from project/image</option>
+                <option value="landscape">Landscape 16:9</option>
+                <option value="portrait">Portrait 9:16</option>
+                <option value="square">Square 1:1</option>
+              </select>
+            </label>
+            <label>Resolution
+              <select id="exportResolution">
+                <option value="720p">720p</option>
+                <option value="1080p">1080p</option>
+              </select>
+            </label>
+            <label>FPS <input id="exportFps" type="number" min="1" max="60" step="1" value="30" /></label>
+            <label>Video fit
+              <select id="exportVideoFit">
+                <option value="cover">Cover / crop to frame</option>
+                <option value="contain">Contain / pad to frame</option>
+              </select>
+            </label>
+            <label>Video quality
+              <select id="exportVideoQuality">
+                <option value="small">Small file</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
+          <p class="imageResolvedSettings">Video export uses existing group videos when present, otherwise group images as still frames, looped/trimmed to group chunk ranges and muxed with the assembled audio. The video speed curve is baked into exported video segments while preserving the assembled audio timeline.</p>
           <div id="exportResult">No export yet.</div>
         </section>
       </div>
@@ -152,9 +434,48 @@
           <div id="chunks" class="chunkDetailHost"></div>
         </section>
       </div>
+
+      <div id="groupScreen" class="screenMode">
+        <section class="panel groupDetailPanel">
+          <div class="row between wrap">
+            <div>
+              <h2>Смысловая группа</h2>
+              <p class="groupAiHint">Grok может сгруппировать чанки по сценам и подготовить подсказки для будущего видеоряда.</p>
+            </div>
+            <div class="groupAiControls">
+              <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
+              <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
+              <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Generate all SVD/SVD-XT videos</button>
+              <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
+              <span id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</span>
+              <button id="backToProjectFromGroupBtn" type="button" class="secondary">Back to Project</button>
+            </div>
+          </div>
+          <div id="groupDetailPlaceholder" class="groupPlaceholder">Выберите группу в левой панели или на таймлайне, чтобы открыть заготовку настроек будущего видеоряда.</div>
+          <div id="groupDetail" class="groupDetailHost"></div>
+        </section>
+      </div>
+
+      <div id="previewScreen" class="screenMode">
+        <section class="panel previewPlaceholder">
+          <h2>Превью видеоряда</h2>
+          <div id="previewStage" class="previewStageStub">
+            <div id="previewFrame" class="phoneFrameStub">
+              <video id="previewVideo" class="previewVideo" muted loop playsinline controls hidden></video>
+              <div id="previewTextOverlay" class="previewTextOverlay">
+              <span id="previewAspectLabel">9:16</span>
+              <strong id="previewTitle">Video preview placeholder</strong>
+              <small id="previewDescription">Здесь появится вертикальный видеоряд, синхронизированный со смысловыми группами чанков.</small>
+              </div>
+            </div>
+          </div>
+          <p id="previewImageHint">Выберите группу с готовой картинкой, чтобы увидеть preview frame.</p>
+        </section>
+      </div>
     </main>
 
     <div id="timelineTransport" class="timelineTransport" aria-label="Timeline preview transport">
+      <div id="timelineResizeHandle" class="timelineResizeHandle" role="separator" aria-orientation="horizontal" aria-label="Resize timeline panel" title="Drag up or down to resize the timeline panel"></div>
       <div class="transportTop row between wrap">
         <div>
           <strong>Timeline preview</strong>
@@ -184,6 +505,10 @@
             <div id="musicLanesHost" class="musicLanesHost"></div>
             <div class="laneLabel musicLaneHead"><span>Music volume automation</span></div>
             <div id="musicTimelineLane" class="timelineLane musicLane musicAutomationLane"></div>
+            <div class="laneLabel videoGroupLaneHead"><span>Video groups</span></div>
+            <div id="videoGroupLanesHost" class="videoGroupLanesHost"></div>
+            <div class="laneLabel videoGroupLaneHead"><span>Video playback speed</span></div>
+            <div id="videoSpeedAutomationLane" class="timelineLane videoSpeedAutomationLane"></div>
           </div>
         </div>
       </div>
@@ -196,10 +521,10 @@
         </label>
         <span id="automationPointReadout" class="automationPointReadout">Music volume automation</span>
       </div>
-      <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume lane to add a point; Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
+      <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/app.js?v=2026-05-08-cachedecode-scope-header-fix-v1"></script>
+    <script src="/studio/app.js?v=2026-05-11-grok-loop-postprocess-v2"></script>
   </body>
 </html>
 

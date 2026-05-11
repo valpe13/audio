@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_tag": "image-video-models-v1",
+  "repo": "valpe13/audio",
+  "notes": "Model binaries are distributed as GitHub Release assets, never as Git repository commits. Redistribution status remains pending_review until each upstream license/terms review is completed.",
+  "models": [
+    {
+      "name": "RealVisXL V5.0 FP16 SDXL checkpoint",
+      "category": "image",
+      "filename": "RealVisXL_V5.0_fp16.safetensors",
+      "target_relative_path": "checkpoints/RealVisXL_V5.0_fp16.safetensors",
+      "size_bytes": 6938065488,
+      "sha256": "6a35a7855770ae9820a3c931d4964c3817b6d9e3c6f9c4dabb5b3a94e5643b80",
+      "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/RealVisXL_V5.0_fp16.safetensors",
+      "github_release_parts": [
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/RealVisXL_V5.0_fp16.safetensors.part01",
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/RealVisXL_V5.0_fp16.safetensors.part02",
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/RealVisXL_V5.0_fp16.safetensors.part03",
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/RealVisXL_V5.0_fp16.safetensors.part04"
+      ],
+      "original_source_url": "",
+      "license_url": "",
+      "redistribution_status": "pending_review"
+    },
+    {
+      "name": "Stable Video Diffusion XT 1.1 checkpoint",
+      "category": "video",
+      "filename": "svd_xt.safetensors",
+      "target_relative_path": "checkpoints/svd_xt.safetensors",
+      "size_bytes": 4780030976,
+      "sha256": "69ccfea1bb45dd63b3ba8b6cfe8b0d45d780995dfdde590aeaa97cc567018d33",
+      "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/svd_xt.safetensors",
+      "github_release_parts": [
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/svd_xt.safetensors.part01",
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/svd_xt.safetensors.part02",
+        "https://github.com/valpe13/audio/releases/download/image-video-models-v1/svd_xt.safetensors.part03"
+      ],
+      "original_source_url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt-1-1/resolve/main/svd_xt_1_1.safetensors",
+      "license_url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt-1-1",
+      "redistribution_status": "pending_review"
+    },
+    {
+      "name": "DreamShaper 8 pruned SD1.5 checkpoint",
+      "category": "image",
+      "filename": "DreamShaper_8_pruned.safetensors",
+      "target_relative_path": "checkpoints/DreamShaper_8_pruned.safetensors",
+      "size_bytes": 2132625894,
+      "sha256": "879db523c30d3b9017143d56705015e15a2cb5628762c11d086fed9538abd7fd",
+      "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/DreamShaper_8_pruned.safetensors",
+      "original_source_url": "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors",
+      "license_url": "https://huggingface.co/Lykon/DreamShaper",
+      "redistribution_status": "pending_review"
+    },
+    {
+      "name": "AnimateDiff SD1.5 motion module v2",
+      "category": "video",
+      "filename": "mm_sd_v15_v2.ckpt",
+      "target_relative_path": "animatediff_models/mm_sd_v15_v2.ckpt",
+      "size_bytes": 1817888431,
+      "sha256": "69ed0f5fef82b110aca51bcab73b21104242bc65d6ab4b8b2a2a94d31cad1bf0",
+      "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/mm_sd_v15_v2.ckpt",
+      "original_source_url": "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt",
+      "license_url": "https://huggingface.co/guoyww/animatediff",
+      "redistribution_status": "pending_review"
+    },
+    {
+      "name": "HotshotXL temporal layers SDXL motion model",
+      "category": "video",
+      "filename": "hsxl_temporal_layers.safetensors",
+      "target_relative_path": "animatediff_models/hsxl_temporal_layers.safetensors",
+      "size_bytes": 949328384,
+      "sha256": "3a3a8013f99ba2991da633a9b82c833c7e7e6b62020b6cab41756601ad06c484",
+      "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/hsxl_temporal_layers.safetensors",
+      "original_source_url": "https://huggingface.co/hotshotco/Hotshot-XL/resolve/main/hsxl_temporal_layers.safetensors",
+      "license_url": "https://huggingface.co/hotshotco/Hotshot-XL",
+      "redistribution_status": "pending_review"
+    }
+  ]
+}

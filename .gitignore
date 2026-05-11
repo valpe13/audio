@@ -24,6 +24,8 @@ xtts_api/.venv/
 *.secret
 *token*
 *credentials*
+**/project.secrets.json
+xtts_api/studio_projects/projects/*/project.secrets.json
 
 # Do not commit portable runtimes or downloaded model bundles.
 # Installer scripts recreate/download runtime assets locally when needed.
@@ -44,12 +46,19 @@ release_assets/
 outputs/
 **/outputs/
 **/uploads/
+**/downloads/
+**/generated/
+**/generated_media/
+**/exports/
 silero_tts_api/outputs/
 xtts_api/outputs/
 xtts_api/studio_projects/outputs/
 xtts_api/studio_projects/uploads/
 xtts_api/studio_projects/projects/*/outputs/
 xtts_api/studio_projects/projects/*/uploads/
+xtts_api/studio_projects/projects/*/generated/
+xtts_api/studio_projects/projects/*/generated_media/
+xtts_api/studio_projects/projects/*/exports/
 fish_speech_api/reference_audio/
 xtts_api/reference_audio/
 

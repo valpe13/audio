@@ -1,10 +1,47 @@
-﻿const FRONTEND_BUILD = "2026-05-08-cachedecode-scope-header-fix-v1";
+﻿const FRONTEND_BUILD = "2026-05-11-grok-loop-postprocess-v2";
+const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
+const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
+const VIDEO_I2V_BACKEND_LABELS = {
+  generated_svd: "SVD/SVD-XT",
+  generated_animatediff: "AnimateDiff SD1.5",
+  generated_hotshotxl: "HotshotXL / AnimateDiff SDXL",
+  generated_grok_imagine_video: "Grok Imagine Video",
+};
+const IMAGE_QUALITY_PRESETS = {
+  fast: { label: "Быстро", vertical: [832, 1216], horizontal: [1216, 832], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+  balanced: { label: "Баланс", vertical: [896, 1152], horizontal: [1152, 896], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+  quality: { label: "Качество", vertical: [1024, 1536], horizontal: [1536, 1024], steps: 28, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+};
+const IMAGE_QUALITY_ORDER = ["fast", "balanced", "quality"];
+const VIDEO_I2V_QUALITY_PRESETS = {
+  fast: { label: "Быстро", frames: 14, fps: 6, motion_bucket_id: 96, augmentation_level: 0.01, min_cfg: 1.0, cfg: 2.0, steps: 12, sampler: "euler", scheduler: "normal" },
+  balanced: { label: "Баланс", frames: 25, fps: 6, motion_bucket_id: 104, augmentation_level: 0.01, min_cfg: 1.0, cfg: 2.2, steps: 20, sampler: "euler", scheduler: "normal" },
+  quality: { label: "Качество", frames: 49, fps: 8, motion_bucket_id: 140, augmentation_level: 0.02, min_cfg: 1.0, cfg: 3.0, steps: 30, sampler: "euler", scheduler: "normal" },
+};
+const VIDEO_I2V_QUALITY_ORDER = ["fast", "balanced", "quality"];
+const GROK_IMAGINE_VIDEO_RESOLUTION_PRESETS = { fast: "480p", balanced: "720p", quality: "720p" };
+const VIDEO_I2V_MOTION_STYLE_PRESETS = {
+  object_locked: { label: "Object motion, locked camera", hint: "objects move; camera stays locked", motion_bucket_id: 56, augmentation_level: 0.0, cfg: 1.8, max_frames: 25, max_fps: 6, steps_delta: 0 },
+  still_life: { label: "Still life", hint: "minimal drift", motion_bucket_id: 48, augmentation_level: 0.0, cfg: 1.8, max_frames: 25, max_fps: 6, steps_delta: 0 },
+  ambient_nature: { label: "Ambient nature", hint: "subtle grass/leaves/water/smoke", motion_bucket_id: 72, augmentation_level: 0.005, cfg: 2.0, max_frames: 25, max_fps: 6, steps_delta: 0 },
+  human_subtle: { label: "Human subtle", hint: "very small face/body drift", motion_bucket_id: 64, augmentation_level: 0.005, cfg: 1.9, max_frames: 25, max_fps: 6, steps_delta: 0 },
+  cinematic_slow: { label: "Cinematic slow", hint: "controlled slow motion", motion_bucket_id: 96, augmentation_level: 0.01, cfg: 2.2, max_frames: 49, max_fps: 8, steps_delta: 2 },
+  landscape_long_loop: { label: "Landscape long loop", hint: "more unique landscape motion, lower steps", motion_bucket_id: 112, augmentation_level: 0.02, cfg: 2.1, max_frames: 49, max_fps: 6, steps_delta: -4 },
+};
 const TIMELINE_ZOOM_MIN = 0.2;
 const TIMELINE_ZOOM_MAX = 640;
 const TIMELINE_PAUSE_PRECISION_SEC = 0.01;
 const TIMELINE_PAUSE_MIN_SEC = 0;
 const TIMELINE_PAUSE_MAX_SEC = 10;
+const SPLIT_SENTENCE_PAUSE_MIN_SEC = 0.18;
+const SPLIT_SENTENCE_PAUSE_MAX_SEC = 0.35;
 const TIMELINE_DEFAULT_VISIBLE_SECONDS = 3600;
+const TIMELINE_PANEL_HEIGHT_KEY = "xttsStudioTimelinePanelHeight";
+const TIMELINE_PANEL_MIN_HEIGHT = 180;
+const TIMELINE_PANEL_MAX_WINDOW_RATIO = 0.7;
+const VIDEO_SPEED_DEFAULT = 1.0;
+const VIDEO_SPEED_MIN = 0.25;
+const VIDEO_SPEED_MAX = 2;
 const state = {
   project: null,
   projects: [],
@@ -18,12 +55,17 @@ const state = {
   sequence: { active: false, audio: null, timer: null, stopAudio: null, runId: 0, status: "Stopped" },
   timeline: { cursorSec: 0, durationSec: 0, arrangement: [], userScrubbing: false, draggingPlayhead: false, pixelsPerSecond: Number(localStorage.getItem("xttsStudioPixelsPerSecond") || 96), minWorkspaceWidth: 1600 },
   pauseDrag: { active: false, chunkId: null, pauseAfter: 0 },
-  preview: { ctx: null, sources: [], gains: [], raf: null, runId: 0, startedAtContextTime: 0, startedAtTimelineTime: 0, musicBufferDuration: 0 },
+  preview: { ctx: null, sources: [], gains: [], raf: null, runId: 0, startedAtContextTime: 0, startedAtTimelineTime: 0, musicBufferDuration: 0, groupId: "", followPlayhead: true },
   envelope: { selectedIndex: -1, draggingIndex: -1, target: "music" },
+  videoSpeed: { selectedIndex: -1, draggingIndex: -1 },
   musicClip: { selectedId: "", draggingId: "", selectedSourceId: "", selectedLaneId: "" },
   chunkNav: { activeId: "", signature: "" },
+  sidePanelMode: "chunks",
   screenMode: "projects",
   selectedChunkId: "",
+  selectedGroupId: "",
+  groupDetail: { signature: "" },
+  comfyuiStatus: null,
   audioDecodeCache: new Map(),
 };
 
@@ -36,6 +78,52 @@ function clamp(value, min, max) {
 function roundTime(value, precision = TIMELINE_PAUSE_PRECISION_SEC) {
   const step = Math.max(0.001, Number(precision) || TIMELINE_PAUSE_PRECISION_SEC);
   return Math.round((Number(value) || 0) / step) * step;
+}
+
+function timelinePanelMaxHeight() {
+  return Math.max(TIMELINE_PANEL_MIN_HEIGHT, Math.floor((window.innerHeight || 900) * TIMELINE_PANEL_MAX_WINDOW_RATIO));
+}
+
+function clampTimelinePanelHeight(value) {
+  return clamp(value, TIMELINE_PANEL_MIN_HEIGHT, timelinePanelMaxHeight());
+}
+
+function setTimelinePanelHeight(height, { persist = false } = {}) {
+  const safeHeight = clampTimelinePanelHeight(height);
+  document.documentElement.style.setProperty("--timeline-height", `${safeHeight}px`);
+  if (persist) localStorage.setItem(TIMELINE_PANEL_HEIGHT_KEY, String(Math.round(safeHeight)));
+  updatePlayheadPosition();
+  return safeHeight;
+}
+
+function initTimelinePanelResize() {
+  const savedHeight = Number(localStorage.getItem(TIMELINE_PANEL_HEIGHT_KEY));
+  if (Number.isFinite(savedHeight) && savedHeight > 0) setTimelinePanelHeight(savedHeight);
+  else setTimelinePanelHeight(Number(getComputedStyle(document.documentElement).getPropertyValue("--timeline-height").replace("px", "")) || 660);
+
+  const handle = $("timelineResizeHandle");
+  const panel = $("timelineTransport");
+  if (!handle || !panel) return;
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = panel.getBoundingClientRect().height;
+    document.body.classList.add("resizingTimelinePanel");
+    handle.setPointerCapture?.(event.pointerId);
+    const onMove = (moveEvent) => {
+      const nextHeight = startHeight + (startY - moveEvent.clientY);
+      setTimelinePanelHeight(nextHeight);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.classList.remove("resizingTimelinePanel");
+      setTimelinePanelHeight(panel.getBoundingClientRect().height, { persist: true });
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp, { once: true });
+  });
 }
 
 async function api(path, options = {}) {
@@ -71,10 +159,35 @@ function renderProgress() {
   const percent = p.active || activeTask ? Math.max(8, rawPercent) : rawPercent;
   fill.style.width = `${percent}%`;
   fill.className = p.active || activeTask ? "active" : "";
-  const runningLabel = activeTask ? `${activeTask.kind}${activeTask.chunk_id ? ` · chunk ${chunkNumber(activeTask.chunk_id)}` : ""}` : "";
+  const runningLabel = activeTask ? `${taskDisplayName(activeTask)}${activeTask.chunk_id ? ` · chunk ${chunkNumber(activeTask.chunk_id)}` : ""}` : "";
   $("progressText").textContent = p.active || activeTask
     ? `${p.message || "Working…"}${runningLabel ? ` (${runningLabel})` : ""}${queuedCount ? ` · ${queuedCount} queued` : ""}`
     : (p.message || "Idle");
+}
+
+function taskDisplayName(task) {
+  if (task?.kind === "grok_groups") return "Grok AI grouping";
+  if (task?.kind === "image_group") return "Image generation / Картинка группы";
+  if (task?.kind === "video_group") return `${videoBackendLabel()} video generation`;
+  if (task?.kind === "generate_chunk") return "Generate chunk";
+  if (task?.kind === "export") return "Export";
+  return task?.label || task?.kind || "Task";
+}
+
+function videoBackendLabel(mode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_svd") {
+  return VIDEO_I2V_BACKEND_LABELS[String(mode).toLowerCase()] || "SVD/SVD-XT";
+}
+
+function syncBulkVideoButtonLabel() {
+  const button = $("queueAllVideosBtn");
+  if (!button) return;
+  const backend = videoBackendLabel();
+  const enabled = $("videoI2vEnabled")?.checked ?? state.project?.settings?.video_i2v_enabled ?? false;
+  button.textContent = `Generate all ${backend} videos`;
+  button.title = enabled
+    ? `Queue all missing group videos using the currently selected ${backend} workflow/backend.`
+    : `Image-to-video buttons are disabled; enable the ${backend} backend in Advanced ComfyUI first.`;
+  button.setAttribute("aria-label", button.textContent);
 }
 
 function chunkNumber(chunkId) {
@@ -100,8 +213,9 @@ function renderHealth() {
   if (warning && warningText) {
     warning.hidden = !mismatch;
     warningText.textContent = mismatch
-      ? "Frontend/backend build mismatch detected. Queue polling continues without automatic page reload; use the manual reload button when playback is stopped."
+      ? `Frontend/backend build mismatch detected (frontend ${FRONTEND_BUILD}, backend ${h.build || "unknown"}). Queue polling continues without automatic page reload; use the manual reload button when playback is stopped.`
       : "";
+    if (mismatch) console.warn("[XTTS Studio] Frontend/backend build mismatch", { frontendBuild: FRONTEND_BUILD, backendBuild: h.build || "unknown", pid: h.pid || null, serverFile: h.server_file || "" });
   }
 }
 
@@ -115,15 +229,16 @@ function renderQueue() {
   root.innerHTML = "";
   for (const task of tasks) {
     const chunk = getChunks().find((c) => c.id === task.chunk_id);
-    const label = chunk ? `Chunk ${chunk.order + 1}` : "project";
+    const label = chunk ? `Chunk ${chunk.order + 1}` : (task.project_id ? `Project ${task.project_id}` : "project");
     const taskPercent = task.progress_percent ?? (task.status === "done" ? 100 : task.status === "running" ? (state.progress?.percent || 15) : 0);
+    const stage = task.stage && task.stage !== task.message ? ` · ${task.stage}` : "";
     const item = document.createElement("div");
     item.className = "queueItem";
     item.innerHTML = `
       <span class="statusTag status-${task.status}">${task.status}</span>
       <div>
-        <strong>${task.kind}</strong>
-        <small>${label} · ${task.message || ""}</small>
+        <strong>${escapeHtml(taskDisplayName(task))}</strong>
+        <small>${escapeHtml(label)} · ${escapeHtml(task.message || "")}${escapeHtml(stage)}</small>
         <div class="taskProgress"><div style="width:${taskPercent}%"></div></div>
       </div>
       <button type="button" class="secondary moveUp">↑</button>
@@ -144,13 +259,258 @@ function isFinishedTask(task) {
   return ["done", "failed", "cancelled", "succeeded", "success", "error"].includes(task?.status);
 }
 
+function fieldValue(id, fallback = "") {
+  const el = $(id);
+  return el ? el.value : fallback;
+}
+
+function trimmedFieldValue(id, fallback = "") {
+  return String(fieldValue(id, fallback)).trim();
+}
+
+function numericFieldValue(id, fallback = 0) {
+  const value = fieldValue(id, fallback);
+  const number = Number(value);
+  return Number.isFinite(number) ? number : Number(fallback) || 0;
+}
+
 function settingsPayload() {
-  return {
-    reference_path: $("referencePath").value.trim(),
-    music_path: $("musicPath").value.trim(),
-    voice_volume: Number($("voiceVolume").value),
-    music_volume: Number($("musicVolume").value),
+  const quality = selectedImageQualityPreset();
+  const videoQuality = selectedVideoI2vQualityPreset();
+  const aspect = $("imageAspectRatio")?.value || "vertical";
+  const resolved = resolvedImagePreset(quality, aspect);
+  const videoResolved = resolvedVideoI2vPreset(videoQuality);
+  const payload = {
+    reference_path: trimmedFieldValue("referencePath"),
+    music_path: trimmedFieldValue("musicPath"),
+    voice_volume: numericFieldValue("voiceVolume", 1),
+    music_volume: numericFieldValue("musicVolume", 0.18),
+    image_provider: $("imageProvider")?.value || "comfyui",
+    image_model: $("imageModel")?.value || "realvisxl",
+    image_quality_preset: quality,
+    image_aspect_ratio: aspect,
+    image_width: Number($("imageWidth")?.value || resolved.width),
+    image_height: Number($("imageHeight")?.value || resolved.height),
+    image_style_preset: $("imageStylePreset")?.value?.trim() || "sleep_documentary",
+    image_comfyui_url: $("imageComfyuiUrl")?.value?.trim() || "http://127.0.0.1:8188",
+    image_comfyui_path: $("imageComfyuiPath")?.value?.trim() || "ComfyUI_windows_portable",
+    image_comfyui_python: $("imageComfyuiPython")?.value?.trim() || "",
+    image_comfyui_launch_cmd: $("imageComfyuiLaunchCmd")?.value?.trim() || "",
+    image_comfyui_autostart: Boolean($("imageComfyuiAutostart")?.checked),
+    image_workflow_mode: $("imageWorkflowMode")?.value || "generated",
+    image_workflow_path: $("imageWorkflowPath")?.value?.trim() || "",
+    image_model_checkpoint: $("imageModelCheckpoint")?.value?.trim() || REALVISXL_CHECKPOINT,
+    image_steps: Number($("imageSteps")?.value || resolved.steps),
+    image_cfg: Number($("imageCfg")?.value || resolved.cfg),
+    image_sampler: $("imageSampler")?.value?.trim() || resolved.sampler,
+    image_scheduler: $("imageScheduler")?.value?.trim() || resolved.scheduler,
+    image_negative_preset: $("imageNegativePreset")?.value?.trim() || "default",
+    image_exclude_people: Boolean($("imageExcludePeople")?.checked),
+    image_seed: Number($("imageSeed")?.value || 0),
+    video_i2v_enabled: Boolean($("videoI2vEnabled")?.checked),
+    video_i2v_quality_preset: videoQuality,
+    video_i2v_motion_style: selectedVideoI2vMotionStyle(),
+    video_i2v_workflow_mode: $("videoI2vWorkflowMode")?.value || "generated_svd",
+    video_i2v_model_checkpoint: $("videoI2vModelCheckpoint")?.value?.trim() || SVD_XT_CHECKPOINT,
+    video_i2v_grok_model: $("videoI2vGrokModel")?.value?.trim() || "grok-imagine-video",
+    video_i2v_grok_duration_sec: clamp($("videoI2vGrokDurationSec")?.value || 5, 1, 30),
+    video_i2v_grok_resolution: $("videoI2vGrokResolution")?.value || GROK_IMAGINE_VIDEO_RESOLUTION_PRESETS[videoQuality] || "480p",
+    video_i2v_grok_aspect_ratio_mode: $("videoI2vGrokAspectRatioMode")?.value || "auto",
+    video_i2v_grok_loop_postprocess: $("videoI2vGrokLoopPostprocess")?.value || "pingpong",
+    video_i2v_grok_crossfade_sec: clamp($("videoI2vGrokCrossfadeSec")?.value || 0.5, 0.1, 2),
+    video_i2v_frames: Number($("videoI2vFrames")?.value || videoResolved.frames),
+    video_i2v_fps: Number($("videoI2vFps")?.value || videoResolved.fps),
+    video_i2v_motion_bucket_id: Number($("videoI2vMotionBucketId")?.value || videoResolved.motion_bucket_id),
+    video_i2v_augmentation_level: Number($("videoI2vAugmentationLevel")?.value || videoResolved.augmentation_level),
+    video_i2v_min_cfg: Number($("videoI2vMinCfg")?.value || videoResolved.min_cfg),
+    video_i2v_cfg: Number($("videoI2vCfg")?.value || videoResolved.cfg),
+    video_i2v_steps: Number($("videoI2vSteps")?.value || videoResolved.steps),
+    video_i2v_sampler: $("videoI2vSampler")?.value?.trim() || videoResolved.sampler,
+    video_i2v_scheduler: $("videoI2vScheduler")?.value?.trim() || videoResolved.scheduler,
+    video_i2v_pingpong: Boolean($("videoI2vPingpong")?.checked ?? true),
+    video_i2v_target_duration_sec: clamp($("videoI2vTargetDurationSec")?.value || 20, 2, 60),
+    video_i2v_preview_playback_rate: clamp($("videoI2vPreviewPlaybackRate")?.value || 1, 0.25, 2),
+    tts_backend: $("ttsBackend")?.value || "xtts",
+    tts_pronunciation_preprocess_enabled: Boolean($("ttsPronunciationPreprocessEnabled")?.checked ?? true),
+    tts_pronunciation_dictionary_path: $("ttsPronunciationDictionaryPath")?.value?.trim() || "xtts_api/pronunciation_dictionary.json",
+    tts_stress_mark_style: $("ttsStressMarkStyle")?.value || "acute",
+    silero_api_url: $("sileroApiUrl")?.value?.trim() || "http://127.0.0.1:7866",
+    silero_speaker: $("sileroSpeaker")?.value?.trim() || "baya",
+    silero_sample_rate: Number($("sileroSampleRate")?.value || 48000),
+    silero_realism_enabled: Boolean($("sileroRealismEnabled")?.checked ?? true),
+    silero_realism_preset: $("sileroRealismPreset")?.value?.trim() || "sleep_safe",
+    ai_add_russian_stress_marks: Boolean($("aiAddRussianStressMarks")?.checked),
+    ai_stress_model: $("aiStressModel")?.value?.trim() || "",
   };
+  const xaiInput = $("xaiApiKey");
+  const clearXai = $("clearXaiApiKey");
+  if (clearXai?.checked) {
+    payload.xai_api_key = "";
+  } else if (xaiInput?.value?.trim()) {
+    payload.xai_api_key = xaiInput.value.trim();
+  }
+  return payload;
+}
+
+function selectedImageQualityPreset() {
+  const slider = $("imageQualityPreset");
+  const raw = state.project?.settings?.image_quality_preset || "balanced";
+  if (slider && document.activeElement === slider) return IMAGE_QUALITY_ORDER[clamp(slider.value, 0, 2)] || "balanced";
+  if (IMAGE_QUALITY_PRESETS[$("imageQualityPreset")?.dataset?.quality || ""]) return $("imageQualityPreset").dataset.quality;
+  return IMAGE_QUALITY_PRESETS[raw] ? raw : "balanced";
+}
+
+function resolvedImagePreset(quality = selectedImageQualityPreset(), aspect = $("imageAspectRatio")?.value || "vertical") {
+  const preset = IMAGE_QUALITY_PRESETS[quality] || IMAGE_QUALITY_PRESETS.balanced;
+  const size = preset[aspect === "horizontal" ? "horizontal" : "vertical"];
+  return { quality, label: preset.label, width: size[0], height: size[1], steps: preset.steps, cfg: preset.cfg, sampler: preset.sampler, scheduler: preset.scheduler };
+}
+
+function setImageQualityPreset(quality, { updateFields = true } = {}) {
+  const safeQuality = IMAGE_QUALITY_PRESETS[quality] ? quality : "balanced";
+  const slider = $("imageQualityPreset");
+  if (slider) {
+    slider.value = String(IMAGE_QUALITY_ORDER.indexOf(safeQuality));
+    slider.dataset.quality = safeQuality;
+  }
+  document.querySelectorAll(".imageQualityButton").forEach((button) => {
+    button.classList.toggle("active", button.dataset.quality === safeQuality);
+    button.classList.toggle("secondary", button.dataset.quality !== safeQuality);
+  });
+  const label = $("imageQualityLabel");
+  if (label) label.textContent = IMAGE_QUALITY_PRESETS[safeQuality].label;
+  if (updateFields) updateResolvedImageSettingsHint();
+}
+
+function updateResolvedImageSettingsHint() {
+  const resolved = resolvedImagePreset();
+  const hint = $("imageResolvedSettings");
+  if (hint) hint.textContent = `RealVisXL · ${resolved.label} · ${resolved.width}×${resolved.height} · ${resolved.steps} steps · CFG ${resolved.cfg}`;
+  const active = document.activeElement;
+  const setValue = (id, value) => { const el = $(id); if (el && active !== el) el.value = String(value); };
+  setValue("imageWidth", resolved.width);
+  setValue("imageHeight", resolved.height);
+  setValue("imageSteps", resolved.steps);
+  setValue("imageCfg", resolved.cfg);
+  setValue("imageSampler", resolved.sampler);
+  setValue("imageScheduler", resolved.scheduler);
+  setValue("imageModelCheckpoint", REALVISXL_CHECKPOINT);
+  setValue("imageModel", "realvisxl");
+  setValue("imageProvider", "comfyui");
+}
+
+function selectedVideoI2vQualityPreset() {
+  const slider = $("videoI2vQualityPreset");
+  const raw = state.project?.settings?.video_i2v_quality_preset || "balanced";
+  if (slider && document.activeElement === slider) return VIDEO_I2V_QUALITY_ORDER[clamp(slider.value, 0, 2)] || "balanced";
+  if (VIDEO_I2V_QUALITY_PRESETS[$("videoI2vQualityPreset")?.dataset?.quality || ""]) return $("videoI2vQualityPreset").dataset.quality;
+  return VIDEO_I2V_QUALITY_PRESETS[raw] ? raw : "balanced";
+}
+
+function selectedVideoI2vMotionStyle() {
+  const raw = $("videoI2vMotionStyle")?.value || state.project?.settings?.video_i2v_motion_style || "ambient_nature";
+  return VIDEO_I2V_MOTION_STYLE_PRESETS[raw] ? raw : "ambient_nature";
+}
+
+function resolvedVideoI2vPreset(quality = selectedVideoI2vQualityPreset(), motionStyle = selectedVideoI2vMotionStyle()) {
+  const preset = VIDEO_I2V_QUALITY_PRESETS[quality] || VIDEO_I2V_QUALITY_PRESETS.balanced;
+  const style = VIDEO_I2V_MOTION_STYLE_PRESETS[motionStyle] || VIDEO_I2V_MOTION_STYLE_PRESETS.ambient_nature;
+  return {
+    quality,
+    motionStyle,
+    ...preset,
+    style_label: style.label,
+    style_hint: style.hint,
+    frames: Math.min(preset.frames, style.max_frames || preset.frames),
+    fps: Math.min(preset.fps, style.max_fps || preset.fps),
+    motion_bucket_id: style.motion_bucket_id,
+    augmentation_level: style.augmentation_level,
+    cfg: style.cfg,
+    steps: Math.max(1, preset.steps + (style.steps_delta || 0)),
+  };
+}
+
+function setVideoI2vQualityPreset(quality, { updateFields = true } = {}) {
+  const safeQuality = VIDEO_I2V_QUALITY_PRESETS[quality] ? quality : "balanced";
+  const slider = $("videoI2vQualityPreset");
+  if (slider) {
+    slider.value = String(VIDEO_I2V_QUALITY_ORDER.indexOf(safeQuality));
+    slider.dataset.quality = safeQuality;
+  }
+  document.querySelectorAll(".videoI2vQualityButton").forEach((button) => {
+    button.classList.toggle("active", button.dataset.quality === safeQuality);
+    button.classList.toggle("secondary", button.dataset.quality !== safeQuality);
+  });
+  const label = $("videoI2vQualityLabel");
+  if (label) label.textContent = VIDEO_I2V_QUALITY_PRESETS[safeQuality].label;
+  if (updateFields) updateResolvedVideoI2vSettingsHint();
+}
+
+function syncGrokImagineVideoSettingsUi(workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_svd") {
+  const selected = workflowMode === "generated_grok_imagine_video";
+  const panel = $("videoI2vGrokSettings");
+  if (panel) {
+    panel.classList.toggle("active", selected);
+    panel.classList.toggle("inactive", !selected);
+    panel.setAttribute("aria-disabled", selected ? "false" : "true");
+  }
+  for (const id of ["videoI2vGrokModel", "videoI2vGrokDurationSec", "videoI2vGrokResolution", "videoI2vGrokAspectRatioMode", "videoI2vGrokLoopPostprocess", "videoI2vGrokCrossfadeSec"]) {
+    const el = $(id);
+    if (el) el.disabled = !selected;
+  }
+  const hint = $("videoI2vGrokEnableHint");
+  if (hint) hint.textContent = selected
+    ? "Grok Imagine Video is selected. Save settings, then use group video buttons to queue hosted xAI generation. Downloaded clips are ffmpeg loop-processed by default."
+    : "To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.";
+}
+
+function updateResolvedVideoI2vSettingsHint() {
+  const resolved = resolvedVideoI2vPreset();
+  const workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_svd";
+  const backend = videoBackendLabel(workflowMode);
+  const grokResolution = $("videoI2vGrokResolution")?.value || state.project?.settings?.video_i2v_grok_resolution || GROK_IMAGINE_VIDEO_RESOLUTION_PRESETS[resolved.quality] || "480p";
+  const grokDuration = clamp($("videoI2vGrokDurationSec")?.value || state.project?.settings?.video_i2v_grok_duration_sec || 5, 1, 30);
+  const grokAspectMode = $("videoI2vGrokAspectRatioMode")?.value || state.project?.settings?.video_i2v_grok_aspect_ratio_mode || "auto";
+  const grokLoopMode = $("videoI2vGrokLoopPostprocess")?.value || state.project?.settings?.video_i2v_grok_loop_postprocess || "pingpong";
+  const targetDuration = clamp($("videoI2vTargetDurationSec")?.value || state.project?.settings?.video_i2v_target_duration_sec || 20, 2, 60);
+  const pingpong = $("videoI2vPingpong")?.checked !== false;
+  const baseFrames = pingpong && resolved.frames > 1 ? resolved.frames * 2 - 2 : resolved.frames;
+  const baseDuration = baseFrames / Math.max(1, resolved.fps);
+  const repeats = Math.max(1, Math.ceil(targetDuration / Math.max(0.001, baseDuration)));
+  const hint = $("videoI2vResolvedSettings");
+  const uniqueSeconds = resolved.frames / Math.max(1, resolved.fps);
+  const uniqueNote = resolved.motionStyle === "landscape_long_loop" ? " · more unique landscape mode trades speed/quality for fewer visible repeats" : "";
+  const animatediffNote = workflowMode === "generated_animatediff" ? " · SD1.5 experimental: use only with an SD1.5 checkpoint/motion model; SDXL RealVisXL fidelity can drop" : "";
+  const hotshotNote = workflowMode === "generated_hotshotxl" ? " · SDXL/HotshotXL experimental: requires an SDXL motion model in animatediff_models and more VRAM; diagnostics endpoint reports blockers" : "";
+  const grokNote = workflowMode === "generated_grok_imagine_video" ? ` · hosted xAI image-to-video · ${grokDuration}s · ${grokResolution} · aspect ${grokAspectMode} (auto: 16:9 landscape, 9:16 portrait) · loop postprocess ${grokLoopMode} · uses project Grok/xAI key · paid API call when queued` : "";
+  if (hint) hint.textContent = workflowMode === "generated_grok_imagine_video"
+    ? `${backend} enabled via Workflow / video backend dropdown · Save settings, then use group video buttons · ${resolved.label}${grokNote}`
+    : `${backend} · ${resolved.label} · ${resolved.style_label} (${resolved.style_hint}) · ${resolved.frames} sampled frames (~${uniqueSeconds.toFixed(1)}s raw) · ${resolved.fps} fps · ~${targetDuration}s output via ${repeats > 1 ? `${repeats} ${pingpong ? "ping-pong repeats" : "repeats"}` : "single loop"} · ${resolved.steps} steps · motion ${resolved.motion_bucket_id} · aug ${resolved.augmentation_level} · CFG ${resolved.cfg}${uniqueNote}${animatediffNote}${hotshotNote}`;
+  syncGrokImagineVideoSettingsUi(workflowMode);
+  syncBulkVideoButtonLabel();
+  const active = document.activeElement;
+  const setValue = (id, value) => { const el = $(id); if (el && active !== el) el.value = String(value); };
+  setValue("videoI2vFrames", resolved.frames);
+  setValue("videoI2vFps", resolved.fps);
+  setValue("videoI2vMotionBucketId", resolved.motion_bucket_id);
+  setValue("videoI2vAugmentationLevel", resolved.augmentation_level);
+  setValue("videoI2vMinCfg", resolved.min_cfg);
+  setValue("videoI2vCfg", resolved.cfg);
+  setValue("videoI2vSteps", resolved.steps);
+  setValue("videoI2vSampler", resolved.sampler);
+  setValue("videoI2vScheduler", resolved.scheduler);
+  if (workflowMode === "generated_svd") setValue("videoI2vModelCheckpoint", SVD_XT_CHECKPOINT);
+  if (workflowMode === "generated_hotshotxl") setValue("videoI2vModelCheckpoint", REALVISXL_CHECKPOINT);
+  if (workflowMode === "generated_grok_imagine_video") {
+    setValue("videoI2vGrokModel", "grok-imagine-video");
+    setValue("videoI2vGrokDurationSec", grokDuration);
+    setValue("videoI2vGrokResolution", grokResolution);
+    setValue("videoI2vGrokAspectRatioMode", grokAspectMode);
+    setValue("videoI2vGrokLoopPostprocess", grokLoopMode);
+  }
+  const speed = $("videoI2vPreviewPlaybackRate");
+  const speedValue = $("videoI2vPreviewPlaybackRateValue");
+  if (speed && speedValue) speedValue.textContent = `${Number(speed.value || 1).toFixed(2)}×`;
 }
 
 function activeProjectQuery() {
@@ -159,6 +519,8 @@ function activeProjectQuery() {
 
 async function saveSettings() {
   state.project = await api(`/api/project/settings${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(settingsPayload()) });
+  if ($("xaiApiKey")) $("xaiApiKey").value = "";
+  if ($("clearXaiApiKey")) $("clearXaiApiKey").checked = false;
   render();
 }
 
@@ -269,6 +631,49 @@ function voiceArrangement() {
   return { volume_envelope: Array.isArray(voice.volume_envelope) ? voice.volume_envelope : [{ time: 0, volume: 1 }] };
 }
 
+function videoArrangement() {
+  const video = state.project?.arrangement?.video || {};
+  return { ...video, speed_envelope: Array.isArray(video.speed_envelope) ? video.speed_envelope : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }] };
+}
+
+function persistedVideoSpeedEnvelope() {
+  const duration = Math.max(0, state.timeline.durationSec || 0);
+  const raw = videoArrangement().speed_envelope;
+  const points = (Array.isArray(raw) ? raw : [])
+    .map((point) => ({ time: clamp(point.time, 0, duration), speed: clamp(point.speed ?? point.playback_rate ?? VIDEO_SPEED_DEFAULT, VIDEO_SPEED_MIN, VIDEO_SPEED_MAX) }))
+    .sort((a, b) => a.time - b.time);
+  return points.length ? points : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
+}
+
+function effectiveVideoSpeedEnvelope() {
+  const duration = Math.max(0, state.timeline.durationSec || 0);
+  const points = persistedVideoSpeedEnvelope().map((point) => ({ ...point })).sort((a, b) => a.time - b.time);
+  if (!points.length) points.push({ time: 0, speed: VIDEO_SPEED_DEFAULT });
+  if (points[0].time > 0.001) points.unshift({ time: 0, speed: points[0].speed });
+  if (duration > 0 && points[points.length - 1].time < duration - 0.001) points.push({ time: duration, speed: points[points.length - 1].speed });
+  return points;
+}
+
+function videoSpeedAt(timeSec) {
+  const points = effectiveVideoSpeedEnvelope();
+  const time = clamp(timeSec, 0, state.timeline.durationSec || 0);
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const next = points[i];
+    if (time <= next.time) {
+      const ratio = clamp((time - prev.time) / Math.max(0.0001, next.time - prev.time), 0, 1);
+      return prev.speed + (next.speed - prev.speed) * ratio;
+    }
+  }
+  return points[points.length - 1]?.speed ?? VIDEO_SPEED_DEFAULT;
+}
+
+function applyPreviewVideoPlaybackRate() {
+  const previewVideo = $("previewVideo");
+  if (!previewVideo) return;
+  previewVideo.playbackRate = clamp(videoSpeedAt(state.timeline.cursorSec), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+}
+
 function persistedEnvelope(target = "music") {
   const duration = Math.max(0, state.timeline.durationSec || 0);
   const lane = laneFromEnvelopeTarget(target);
@@ -365,11 +770,15 @@ function laneEnvelopeValueAt(lane, timeSec) {
 function voiceAutomationAt(timeSec) { return envelopeValueAt("voice", timeSec); }
 
 async function saveMusicArrangement(patch = {}) {
-  const payload = { ...musicArrangement(), ...patch };
+  const payload = patch && typeof patch === "object" ? { ...patch } : {};
   state.project = await api(`/api/project/arrangement/music${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(payload) });
   if (patch.mode) setStatus(`Music mode saved: ${payload.mode}`);
   if (patch.volume_envelope) setStatus("Music automation saved");
   render();
+}
+
+function saveFullMusicArrangement() {
+  return saveMusicArrangement(musicArrangement());
 }
 
 function defaultMusicEnvelopePoint() {
@@ -395,6 +804,13 @@ async function saveVoiceArrangement(patch = {}) {
   render();
 }
 
+async function saveVideoArrangement(patch = {}) {
+  const payload = patch && typeof patch === "object" ? { ...patch } : {};
+  state.project = await api(`/api/project/arrangement/video${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(payload) });
+  if (patch.speed_envelope) setStatus("Video speed automation saved");
+  render();
+}
+
 function renderSettings() {
   const p = state.project;
   if (document.activeElement !== $("fullText")) $("fullText").value = p.full_text || "";
@@ -411,6 +827,148 @@ function renderSettings() {
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
+  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const setIfNotFocused = (id, value) => {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = value;
+  };
+  setIfNotFocused("imageProvider", p.settings.image_provider ?? imageDefaults.image_provider);
+  setIfNotFocused("imageModel", p.settings.image_model ?? imageDefaults.image_model);
+  setIfNotFocused("imageAspectRatio", p.settings.image_aspect_ratio ?? imageDefaults.image_aspect_ratio);
+  setImageQualityPreset(p.settings.image_quality_preset ?? imageDefaults.image_quality_preset, { updateFields: false });
+  setIfNotFocused("imageWidth", p.settings.image_width ?? imageDefaults.image_width);
+  setIfNotFocused("imageHeight", p.settings.image_height ?? imageDefaults.image_height);
+  setIfNotFocused("imageStylePreset", p.settings.image_style_preset ?? imageDefaults.image_style_preset);
+  setIfNotFocused("imageComfyuiUrl", p.settings.image_comfyui_url ?? imageDefaults.image_comfyui_url);
+  setIfNotFocused("imageComfyuiPath", p.settings.image_comfyui_path ?? imageDefaults.image_comfyui_path);
+  setIfNotFocused("imageComfyuiPython", p.settings.image_comfyui_python ?? imageDefaults.image_comfyui_python);
+  setIfNotFocused("imageComfyuiLaunchCmd", p.settings.image_comfyui_launch_cmd ?? imageDefaults.image_comfyui_launch_cmd);
+  const comfyAutostart = $("imageComfyuiAutostart");
+  if (comfyAutostart && document.activeElement !== comfyAutostart) comfyAutostart.checked = Boolean(p.settings.image_comfyui_autostart ?? imageDefaults.image_comfyui_autostart);
+  setIfNotFocused("imageWorkflowMode", p.settings.image_workflow_mode ?? imageDefaults.image_workflow_mode);
+  setIfNotFocused("imageWorkflowPath", p.settings.image_workflow_path ?? imageDefaults.image_workflow_path);
+  setIfNotFocused("imageModelCheckpoint", p.settings.image_model_checkpoint ?? imageDefaults.image_model_checkpoint);
+  setIfNotFocused("imageSteps", p.settings.image_steps ?? imageDefaults.image_steps);
+  setIfNotFocused("imageCfg", p.settings.image_cfg ?? imageDefaults.image_cfg);
+  setIfNotFocused("imageSampler", p.settings.image_sampler ?? imageDefaults.image_sampler);
+  setIfNotFocused("imageScheduler", p.settings.image_scheduler ?? imageDefaults.image_scheduler);
+  setIfNotFocused("imageNegativePreset", p.settings.image_negative_preset ?? imageDefaults.image_negative_preset);
+  const excludePeople = $("imageExcludePeople");
+  if (excludePeople && document.activeElement !== excludePeople) excludePeople.checked = Boolean(p.settings.image_exclude_people ?? imageDefaults.image_exclude_people);
+  setIfNotFocused("imageSeed", p.settings.image_seed ?? imageDefaults.image_seed);
+  const videoEnabled = $("videoI2vEnabled");
+  if (videoEnabled && document.activeElement !== videoEnabled) videoEnabled.checked = Boolean(p.settings.video_i2v_enabled ?? imageDefaults.video_i2v_enabled);
+  setVideoI2vQualityPreset(p.settings.video_i2v_quality_preset ?? imageDefaults.video_i2v_quality_preset, { updateFields: false });
+  setIfNotFocused("videoI2vMotionStyle", p.settings.video_i2v_motion_style ?? imageDefaults.video_i2v_motion_style);
+  setIfNotFocused("videoI2vWorkflowMode", p.settings.video_i2v_workflow_mode ?? imageDefaults.video_i2v_workflow_mode);
+  setIfNotFocused("videoI2vModelCheckpoint", p.settings.video_i2v_model_checkpoint ?? imageDefaults.video_i2v_model_checkpoint);
+  setIfNotFocused("videoI2vGrokModel", p.settings.video_i2v_grok_model ?? imageDefaults.video_i2v_grok_model);
+  setIfNotFocused("videoI2vGrokDurationSec", p.settings.video_i2v_grok_duration_sec ?? imageDefaults.video_i2v_grok_duration_sec);
+  setIfNotFocused("videoI2vGrokResolution", p.settings.video_i2v_grok_resolution ?? imageDefaults.video_i2v_grok_resolution);
+  setIfNotFocused("videoI2vGrokAspectRatioMode", p.settings.video_i2v_grok_aspect_ratio_mode ?? imageDefaults.video_i2v_grok_aspect_ratio_mode);
+  setIfNotFocused("videoI2vGrokLoopPostprocess", p.settings.video_i2v_grok_loop_postprocess ?? imageDefaults.video_i2v_grok_loop_postprocess);
+  setIfNotFocused("videoI2vGrokCrossfadeSec", p.settings.video_i2v_grok_crossfade_sec ?? imageDefaults.video_i2v_grok_crossfade_sec);
+  setIfNotFocused("videoI2vFrames", p.settings.video_i2v_frames ?? imageDefaults.video_i2v_frames);
+  setIfNotFocused("videoI2vFps", p.settings.video_i2v_fps ?? imageDefaults.video_i2v_fps);
+  setIfNotFocused("videoI2vMotionBucketId", p.settings.video_i2v_motion_bucket_id ?? imageDefaults.video_i2v_motion_bucket_id);
+  setIfNotFocused("videoI2vAugmentationLevel", p.settings.video_i2v_augmentation_level ?? imageDefaults.video_i2v_augmentation_level);
+  setIfNotFocused("videoI2vMinCfg", p.settings.video_i2v_min_cfg ?? imageDefaults.video_i2v_min_cfg);
+  setIfNotFocused("videoI2vCfg", p.settings.video_i2v_cfg ?? imageDefaults.video_i2v_cfg);
+  setIfNotFocused("videoI2vSteps", p.settings.video_i2v_steps ?? imageDefaults.video_i2v_steps);
+  setIfNotFocused("videoI2vSampler", p.settings.video_i2v_sampler ?? imageDefaults.video_i2v_sampler);
+  setIfNotFocused("videoI2vScheduler", p.settings.video_i2v_scheduler ?? imageDefaults.video_i2v_scheduler);
+  const videoPingpong = $("videoI2vPingpong");
+  if (videoPingpong && document.activeElement !== videoPingpong) videoPingpong.checked = Boolean(p.settings.video_i2v_pingpong ?? imageDefaults.video_i2v_pingpong);
+  setIfNotFocused("videoI2vTargetDurationSec", p.settings.video_i2v_target_duration_sec ?? imageDefaults.video_i2v_target_duration_sec);
+  setIfNotFocused("videoI2vPreviewPlaybackRate", p.settings.video_i2v_preview_playback_rate ?? imageDefaults.video_i2v_preview_playback_rate);
+  setIfNotFocused("ttsBackend", p.settings.tts_backend ?? imageDefaults.tts_backend);
+  const ttsPreprocess = $("ttsPronunciationPreprocessEnabled");
+  if (ttsPreprocess && document.activeElement !== ttsPreprocess) ttsPreprocess.checked = Boolean(p.settings.tts_pronunciation_preprocess_enabled ?? imageDefaults.tts_pronunciation_preprocess_enabled);
+  setIfNotFocused("ttsPronunciationDictionaryPath", p.settings.tts_pronunciation_dictionary_path ?? imageDefaults.tts_pronunciation_dictionary_path);
+  setIfNotFocused("ttsStressMarkStyle", p.settings.tts_stress_mark_style ?? imageDefaults.tts_stress_mark_style);
+  setIfNotFocused("sileroApiUrl", p.settings.silero_api_url ?? imageDefaults.silero_api_url);
+  setIfNotFocused("sileroSpeaker", p.settings.silero_speaker ?? imageDefaults.silero_speaker);
+  setIfNotFocused("sileroSampleRate", p.settings.silero_sample_rate ?? imageDefaults.silero_sample_rate);
+  const sileroRealism = $("sileroRealismEnabled");
+  if (sileroRealism && document.activeElement !== sileroRealism) sileroRealism.checked = Boolean(p.settings.silero_realism_enabled ?? imageDefaults.silero_realism_enabled);
+  setIfNotFocused("sileroRealismPreset", p.settings.silero_realism_preset ?? imageDefaults.silero_realism_preset);
+  const aiStress = $("aiAddRussianStressMarks");
+  if (aiStress && document.activeElement !== aiStress) aiStress.checked = Boolean(p.settings.ai_add_russian_stress_marks ?? imageDefaults.ai_add_russian_stress_marks);
+  setIfNotFocused("aiStressModel", p.settings.ai_stress_model ?? imageDefaults.ai_stress_model);
+  updateResolvedImageSettingsHint();
+  updateResolvedVideoI2vSettingsHint();
+  renderFluxWorkflowNote();
+  renderComfyuiStatus();
+  const xaiInput = $("xaiApiKey");
+  if (xaiInput && document.activeElement !== xaiInput) xaiInput.value = "";
+  const clearXai = $("clearXaiApiKey");
+  if (clearXai && document.activeElement !== clearXai) clearXai.checked = false;
+  const xaiHint = $("xaiApiKeyHint");
+  if (xaiHint) {
+    const keyHint = String(p.settings.xai_api_key_hint || "").trim();
+    const configured = Boolean(p.settings.xai_api_key_configured) || (/configured|using xai_api_key/i.test(keyHint) && !/^not configured$/i.test(keyHint));
+    xaiHint.textContent = configured
+      ? `Grok key configured · ${keyHint || "project/env key available"}`
+      : "Grok key not configured · set it here or via XAI_API_KEY.";
+    xaiHint.className = `xaiApiKeyHint ${configured ? "configured" : "missing"}`;
+  }
+}
+
+function renderFluxWorkflowNote() {
+  const note = $("imageFluxWorkflowNote");
+  if (!note) return;
+  const model = $("imageModel")?.value || state.project?.settings?.image_model || "sdxl";
+  const workflowMode = $("imageWorkflowMode")?.value || state.project?.settings?.image_workflow_mode || "generated";
+  note.hidden = !(model === "flux" && workflowMode === "generated");
+}
+
+function renderComfyuiStatus() {
+  const badge = $("comfyuiStatusBadge");
+  const line = $("comfyuiStatusLine");
+  if (!badge || !line) return;
+  const info = state.comfyuiStatus;
+  if (!info) {
+    badge.textContent = "ComfyUI: not checked";
+    badge.className = "comfyuiStatusBadge unknown";
+    line.textContent = "Use Check ComfyUI to query /api/comfyui/status.";
+    return;
+  }
+  const running = Boolean(info.running);
+  badge.textContent = running ? "ComfyUI: running" : "ComfyUI: not running";
+  badge.className = `comfyuiStatusBadge ${running ? "running" : "stopped"}`;
+  const parts = [
+    running ? "running" : "not running",
+    `url: ${info.url || "—"}`,
+    `autostart: ${info.autostart_enabled ? "on" : "off"}`,
+    `workflow: ${info.workflow_mode || "—"}`,
+    `checkpoint: ${info.model_checkpoint || "not configured"} (${info.model_check || "unknown"})`,
+  ];
+  if (info.note) parts.push(`note: ${info.note}`);
+  line.textContent = parts.join(" · ");
+}
+
+async function checkComfyuiStatus() {
+  try {
+    setStatus("Checking ComfyUI status…", true);
+    state.comfyuiStatus = await api(`/api/comfyui/status${activeProjectQuery()}`);
+    renderComfyuiStatus();
+    setStatus(state.comfyuiStatus.running ? "ComfyUI is running" : "ComfyUI is not running");
+  } catch (err) {
+    state.comfyuiStatus = { running: false, url: $("imageComfyuiUrl")?.value || "", autostart_enabled: $("imageComfyuiAutostart")?.checked || false, workflow_mode: $("imageWorkflowMode")?.value || "generated", model_checkpoint: $("imageModelCheckpoint")?.value || "", model_check: "error", note: err.message };
+    renderComfyuiStatus();
+    setStatus(`ComfyUI status failed: ${err.message}`);
+  }
+}
+
+function applyImageSizePreset(button) {
+  const aspect = button?.dataset?.aspect || "vertical";
+  const width = Number(button?.dataset?.width || 1024);
+  const height = Number(button?.dataset?.height || 1792);
+  if ($("imageAspectRatio")) $("imageAspectRatio").value = aspect;
+  if ($("imageWidth")) $("imageWidth").value = String(width);
+  if ($("imageHeight")) $("imageHeight").value = String(height);
+  document.querySelectorAll(".imageSizePreset").forEach((item) => item.classList.toggle("active", item === button));
+  setStatus(`Image size preset: ${width}×${height}`);
 }
 
 function formatTime(seconds) {
@@ -419,6 +977,164 @@ function formatTime(seconds) {
   const secs = Math.floor(safe % 60);
   const ms = Math.floor((safe - Math.floor(safe)) * 1000);
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+function chunkSummaryText(text, maxWords = 12) {
+  const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  return words.slice(0, maxWords).join(" ") + (words.length > maxWords ? "…" : "");
+}
+
+function computeChunkGroups(chunks = getChunks(), size = 4) {
+  const sorted = [...chunks].sort((a, b) => a.order - b.order);
+  const groups = [];
+  for (let index = 0; index < sorted.length; index += size) {
+    const groupChunks = sorted.slice(index, index + size);
+    if (!groupChunks.length) continue;
+    const groupNumber = groups.length + 1;
+    const firstOrder = groupChunks[0].order + 1;
+    const lastOrder = groupChunks[groupChunks.length - 1].order + 1;
+    groups.push({
+      id: `group_${groupNumber}`,
+      order: groupNumber - 1,
+      title: `Группа ${groupNumber} · чанки ${firstOrder}–${lastOrder}`,
+      summary: chunkSummaryText(groupChunks[0].text) || "Без текста",
+      chunk_ids: groupChunks.map((chunk) => chunk.id),
+    });
+  }
+  return groups;
+}
+
+function videoGroups() {
+  const saved = state.project?.arrangement?.video?.groups;
+  if (Array.isArray(saved) && saved.length) return saved;
+  return computeChunkGroups();
+}
+
+function activeImageGroupTask(groupId = "") {
+  const projectId = state.project?.id || state.activeProjectId || "";
+  const queues = [state.queue || [], state.project?.queue || []];
+  for (const tasks of queues) {
+    const task = (tasks || []).find((item) => item?.kind === "image_group"
+      && (!projectId || item.project_id === projectId)
+      && (!groupId || item.group_id === groupId || item.result_group_id === groupId || item.payload?.group_id === groupId || item.params?.group_id === groupId)
+      && ["queued", "running"].includes(item.status));
+    if (task) return task;
+  }
+  return null;
+}
+
+
+function activeVideoGroupTask(groupId = "") {
+  const projectId = state.project?.id || state.activeProjectId || "";
+  const queues = [state.queue || [], state.project?.queue || []];
+  for (const tasks of queues) {
+    const task = (tasks || []).find((item) => item?.kind === "video_group"
+      && (!projectId || item.project_id === projectId)
+      && (!groupId || item.payload?.group_id === groupId || item.params?.group_id === groupId)
+      && ["queued", "running"].includes(item.status));
+    if (task) return task;
+  }
+  return null;
+}
+
+function groupImageStatus(group) {
+  const activeTask = activeImageGroupTask(group?.id || "");
+  if (activeTask) return activeTask.status === "running" ? "running" : "queued";
+  const image = group?.image || {};
+  if (!image || !Object.keys(image).length) return "missing";
+  const status = String(image.status || "").toLowerCase();
+  if (["done", "fallback", "failed", "running", "queued"].includes(status)) return status;
+  if (image.url || image.path) return "done";
+  return "missing";
+}
+
+function groupVideoStatus(group) {
+  const activeTask = activeVideoGroupTask(group?.id || "");
+  if (activeTask) return activeTask.status === "running" ? "running" : "queued";
+  const video = group?.video || {};
+  if (!video || !Object.keys(video).length) return "missing";
+  const status = String(video.status || "").toLowerCase();
+  if (["ready", "done", "failed", "running", "queued"].includes(status)) return status === "ready" ? "done" : status;
+  if (video.url || video.path) return "done";
+  return "missing";
+}
+
+function groupVideoMetaText(group) {
+  const video = group?.video || {};
+  const status = groupVideoStatus(group);
+  if (status === "missing") return "no SVD video";
+  const parts = [status];
+  if (video.loop) parts.push("loop video");
+  if (video.pingpong) parts.push("ping-pong");
+  if (video.duration_sec) parts.push(formatTime(video.duration_sec));
+  if (video.frames) parts.push(`${video.frames} frames`);
+  if (video.fps) parts.push(`${video.fps} fps`);
+  if (video.model_checkpoint) parts.push(shortPath(video.model_checkpoint));
+  return parts.join(" · ");
+}
+
+function groupImageStatusLabel(status) {
+  return ({ missing: "missing", queued: "queued", running: "running", done: "done", fallback: "fallback", failed: "failed" })[status] || status || "missing";
+}
+
+function groupImageMetaText(group) {
+  const image = group?.image || {};
+  const status = groupImageStatus(group);
+  const parts = [groupImageStatusLabel(status)];
+  if (image.provider) parts.push(image.provider);
+  if (image.model) parts.push(image.model);
+  if (image.aspect_ratio) parts.push(image.aspect_ratio);
+  if (image.seed !== undefined && image.seed !== null && image.seed !== "") parts.push(`seed ${image.seed}`);
+  return parts.join(" · ");
+}
+
+function selectedPreviewGroup() {
+  const groups = groupTimelineSpans();
+  const previewGroupId = state.preview.followPlayhead ? state.preview.groupId : "";
+  return groups.find((group) => group.id === previewGroupId)
+    || groups.find((group) => group.id === state.selectedGroupId)
+    || groups.find((group) => group.video?.url)
+    || groups.find((group) => group.image?.url)
+    || groups[0]
+    || null;
+}
+
+function groupTimelineSpans(groups = videoGroups()) {
+  const byChunkId = new Map((state.timeline.arrangement || []).map((part) => [part.chunk.id, part]));
+  return groups.map((group) => {
+    const chunkIds = Array.isArray(group.chunk_ids) ? group.chunk_ids : [];
+    const parts = chunkIds.map((id) => byChunkId.get(id)).filter(Boolean);
+    const start = parts.length ? Math.min(...parts.map((part) => part.start)) : 0;
+    const end = parts.length ? Math.max(...parts.map((part) => part.end)) : start;
+    return { ...group, chunk_ids: chunkIds, start, end, duration: Math.max(0, end - start), parts };
+  });
+}
+
+function videoGroupAtTime(seconds) {
+  const time = Math.max(0, Number(seconds) || 0);
+  const groups = groupTimelineSpans();
+  return groups.find((group) => time >= group.start && time < group.end)
+    || groups.find((group) => group.duration === 0 && Math.abs(time - group.start) < 0.001)
+    || (time >= state.timeline.durationSec ? groups.find((group) => group.end === state.timeline.durationSec) : null)
+    || null;
+}
+
+function syncPreviewGroupToPlayhead({ forceRender = false } = {}) {
+  if (!state.preview.followPlayhead) return;
+  const group = videoGroupAtTime(state.timeline.cursorSec);
+  const nextGroupId = group?.id || "";
+  if (state.preview.groupId === nextGroupId && !forceRender) return;
+  state.preview.groupId = nextGroupId;
+  if (nextGroupId) {
+    state.selectedGroupId = nextGroupId;
+    setActiveGroupNav(nextGroupId);
+    renderVideoGroupLanesHost();
+  }
+  if (state.screenMode === "preview") renderPreviewScreen();
+}
+
+function selectedGroup() {
+  return groupTimelineSpans().find((group) => group.id === state.selectedGroupId) || null;
 }
 
 function buildTimelineArrangement() {
@@ -444,6 +1160,7 @@ function updateTransportReadout() {
   if (time) time.textContent = `${formatTime(state.timeline.cursorSec)} / ${formatTime(state.timeline.durationSec)}`;
   const scrubber = $("timelineScrubber");
   if (scrubber && !state.timeline.userScrubbing) scrubber.value = String(state.timeline.cursorSec);
+  applyPreviewVideoPlaybackRate();
   updatePlayheadPosition();
   updateAutomationCursorReadout();
 }
@@ -451,6 +1168,7 @@ function updateTransportReadout() {
 function setTimelineCursor(seconds, { fromPlayback = false } = {}) {
   state.timeline.cursorSec = Math.max(0, Math.min(Number(seconds) || 0, state.timeline.durationSec || 0));
   updateTransportReadout();
+  syncPreviewGroupToPlayhead();
   if (!fromPlayback) setSequenceStatus(`Cursor ${formatTime(state.timeline.cursorSec)}`);
 }
 
@@ -507,9 +1225,56 @@ function renderTransportLanes() {
     renderEnvelope(musicLane, "music");
   }
   renderMusicLanesHost(music);
+  renderVideoGroupLanesHost();
+  const videoSpeedLane = $("videoSpeedAutomationLane");
+  if (videoSpeedLane) {
+    videoSpeedLane.innerHTML = "";
+    videoSpeedLane.style.width = `${Math.max(1, timelinePx(state.timeline.durationSec || 1))}px`;
+    renderVideoSpeedEnvelope(videoSpeedLane);
+  }
   const label = $("musicLaneLabel");
   if (label) label.textContent = music.sources.length ? `Music: ${music.sources.length} source(s) · ${music.lanes.length} lane(s) · ${music.tracks.length} clip(s)` : "Music: none loaded";
   renderMusicClipEditor();
+}
+
+function renderVideoGroupLanesHost() {
+  const host = $("videoGroupLanesHost");
+  if (!host) return;
+  host.innerHTML = "";
+  host.style.setProperty("--video-group-timeline-width", `${Math.max(1, timelinePx(state.timeline.durationSec || 1))}px`);
+  const groups = groupTimelineSpans();
+  const timelineWidth = Math.max(1, timelinePx(state.timeline.durationSec || 1));
+  const row = document.createElement("div");
+  row.className = "videoGroupLaneRow videoGroupSingleLaneRow";
+  const head = document.createElement("div");
+  head.className = "videoGroupLaneControls";
+  head.innerHTML = `<strong>All video groups</strong><small>${groups.length ? `${groups.length} group(s) · one shared lane` : "No chunk groups yet"}</small>`;
+  const lane = document.createElement("div");
+  lane.className = "timelineLane videoGroupLane videoGroupSingleLane";
+  lane.style.width = `${timelineWidth}px`;
+  if (!groups.length) {
+    lane.innerHTML = `<div class="videoGroupBlock missing" style="left:0;width:${Math.max(180, timelineWidth)}px">No chunk groups yet</div>`;
+    row.appendChild(head);
+    row.appendChild(lane);
+    host.appendChild(row);
+    return;
+  }
+  for (const group of groups) {
+    const imageStatus = groupImageStatus(group);
+    const block = document.createElement("button");
+    block.type = "button";
+    block.className = `videoGroupBlock image-${imageStatus} ${group.id === state.selectedGroupId ? "active selected" : ""}`;
+    block.dataset.groupId = group.id;
+    block.style.left = `${timelinePx(group.start)}px`;
+    block.style.width = `${Math.max(44, timelinePx(group.duration || 0.05))}px`;
+    block.title = `${group.title}: ${formatTime(group.start)} - ${formatTime(group.end)} · image ${imageStatus} · ${group.summary}`;
+    block.innerHTML = `<span>${escapeHtml(group.title)}</span><small>${escapeHtml(groupImageMetaText(group))}</small>`;
+    block.onclick = () => selectGroup(group.id);
+    lane.appendChild(block);
+  }
+  row.appendChild(head);
+  row.appendChild(lane);
+  host.appendChild(row);
 }
 
 function renderMusicLanesHost(music = musicArrangement()) {
@@ -645,6 +1410,10 @@ function updateTimelineWorkspaceWidth() {
     musicLanesHost.style.removeProperty("width");
     musicLanesHost.style.setProperty("--music-lane-timeline-width", timelineColumnWidth);
   }
+  const videoGroupLanesHost = $("videoGroupLanesHost");
+  if (videoGroupLanesHost) videoGroupLanesHost.style.setProperty("--video-group-timeline-width", timelineColumnWidth);
+  const videoSpeedLane = $("videoSpeedAutomationLane");
+  if (videoSpeedLane) videoSpeedLane.style.width = timelineColumnWidth;
   const zoomLabel = $("zoomValue");
   if (zoomLabel) zoomLabel.textContent = `${Number(state.timeline.pixelsPerSecond).toFixed(state.timeline.pixelsPerSecond < 10 ? 2 : 0)} px/s`;
 }
@@ -780,6 +1549,42 @@ function renderEnvelope(lane, target = "music") {
   lane.appendChild(svg);
 }
 
+function renderVideoSpeedEnvelope(lane) {
+  const points = persistedVideoSpeedEnvelope();
+  const width = Math.max(1, lane.clientWidth || timelinePx(state.timeline.durationSec || 10));
+  const height = Math.max(1, lane.clientHeight || 36);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "musicEnvelope videoSpeedEnvelope");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const coords = points.map((point) => ({ x: timelinePx(point.time), y: height - ((clamp(point.speed, VIDEO_SPEED_MIN, VIDEO_SPEED_MAX) - VIDEO_SPEED_MIN) / (VIDEO_SPEED_MAX - VIDEO_SPEED_MIN)) * height }));
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  line.setAttribute("class", "envelopeLine");
+  line.setAttribute("points", coords.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" "));
+  svg.appendChild(line);
+  points.forEach((point, index) => {
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("class", `envelopePoint videoSpeedPoint ${index === state.videoSpeed.selectedIndex ? "selected" : ""}`);
+    circle.setAttribute("cx", String(coords[index].x));
+    circle.setAttribute("cy", String(coords[index].y));
+    circle.setAttribute("r", "8");
+    circle.dataset.index = String(index);
+    circle.addEventListener("pointerdown", beginVideoSpeedDrag);
+    circle.addEventListener("contextmenu", (event) => { event.preventDefault(); event.stopPropagation(); deleteVideoSpeedPoint(index); });
+    svg.appendChild(circle);
+  });
+  lane.appendChild(svg);
+}
+
+function videoSpeedPointFromEvent(event) {
+  const lane = $("videoSpeedAutomationLane");
+  const rect = lane.getBoundingClientRect();
+  return {
+    time: clamp((event.clientX - rect.left) / Math.max(1, state.timeline.pixelsPerSecond || 96), 0, state.timeline.durationSec || 0),
+    speed: clamp(VIDEO_SPEED_MAX - ((event.clientY - rect.top) / Math.max(1, rect.height)) * (VIDEO_SPEED_MAX - VIDEO_SPEED_MIN), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX),
+  };
+}
+
 function envelopePointFromEvent(event, target = "music") {
   const lane = isLaneEnvelopeTarget(target)
     ? document.querySelector(`[data-target="${CSS.escape(target)}"]`)
@@ -795,10 +1600,15 @@ function updateAutomationCursorReadout(point = null) {
   const el = $("automationPointReadout");
   if (!el) return;
   const target = state.envelope.target || "music";
+  if (state.videoSpeed.selectedIndex >= 0) {
+    const speedPoint = persistedVideoSpeedEnvelope()[state.videoSpeed.selectedIndex] || { time: state.timeline.cursorSec, speed: videoSpeedAt(state.timeline.cursorSec) };
+    el.textContent = `Video speed point selected · ${formatTime(speedPoint.time)} · ${speedPoint.speed.toFixed(2)}× · default ${VIDEO_SPEED_DEFAULT.toFixed(2)}×`;
+    return;
+  }
   const value = point || { time: state.timeline.cursorSec, volume: envelopeValueAt(target, state.timeline.cursorSec) };
   const label = envelopeTargetLabel(target);
   const selected = state.envelope.selectedIndex >= 0 ? `${label} point selected` : "Volume automation";
-  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · music gain = master curve × lane curve × lane base × clip`;
+  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · video speed ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · music gain = master curve × lane curve × lane base × clip`;
 }
 
 function renderMusicClipBlock(track, leftPx, widthPx, looped = false, index = 0, repeated = false, lane = null) {
@@ -1181,6 +1991,7 @@ function beginEnvelopeDrag(event) {
   }
   state.envelope.selectedIndex = index;
   state.envelope.target = target;
+  state.videoSpeed.selectedIndex = -1;
   updateAutomationCursorReadout(persistedEnvelope(target)[index]);
   let currentIndex = index;
   const onMove = (moveEvent) => {
@@ -1226,6 +2037,64 @@ function setLocalEnvelope(target, points) {
   state.project.arrangement[target].volume_envelope = points;
 }
 
+function setLocalVideoSpeedEnvelope(points) {
+  state.project.arrangement = state.project.arrangement || {};
+  state.project.arrangement.video = state.project.arrangement.video || {};
+  state.project.arrangement.video.speed_envelope = points;
+}
+
+function saveVideoSpeedEnvelope(points) {
+  return saveVideoArrangement({ speed_envelope: points });
+}
+
+function beginVideoSpeedDrag(event) {
+  event.stopPropagation();
+  event.preventDefault();
+  const index = Number(event.currentTarget.dataset.index);
+  if (event.altKey) {
+    deleteVideoSpeedPoint(index);
+    return;
+  }
+  state.envelope.selectedIndex = -1;
+  state.videoSpeed.selectedIndex = index;
+  updateAutomationCursorReadout();
+  let currentIndex = index;
+  const onMove = (moveEvent) => {
+    const points = persistedVideoSpeedEnvelope();
+    const dragged = videoSpeedPointFromEvent(moveEvent);
+    points[currentIndex] = dragged;
+    points.sort((a, b) => a.time - b.time);
+    currentIndex = points.findIndex((point) => point === dragged);
+    state.videoSpeed.selectedIndex = currentIndex;
+    setLocalVideoSpeedEnvelope(points);
+    applyPreviewVideoPlaybackRate();
+    renderTransportLanes();
+  };
+  const onUp = () => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    saveVideoSpeedEnvelope(persistedVideoSpeedEnvelope()).catch((err) => setStatus(`Video speed save failed: ${err.message}`));
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp, { once: true });
+}
+
+function deleteVideoSpeedPoint(index = state.videoSpeed.selectedIndex) {
+  const remaining = persistedVideoSpeedEnvelope().filter((_, i) => i !== index);
+  const points = remaining.length ? remaining : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
+  state.videoSpeed.selectedIndex = -1;
+  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Video speed delete failed: ${err.message}`));
+}
+
+function addVideoSpeedPoint(event) {
+  const point = videoSpeedPointFromEvent(event);
+  const points = persistedVideoSpeedEnvelope().concat([point]).sort((a, b) => a.time - b.time);
+  state.envelope.selectedIndex = -1;
+  state.videoSpeed.selectedIndex = points.findIndex((p) => p === point);
+  updateAutomationCursorReadout();
+  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Video speed save failed: ${err.message}`));
+}
+
 function deleteEnvelopePoint(target = state.envelope.target || "music", index = state.envelope.selectedIndex) {
   const remaining = persistedEnvelope(target).filter((_, i) => i !== index);
   const points = remaining.length ? remaining : [{ time: 0, volume: isLaneEnvelopeTarget(target) || target === "voice" ? 1 : Number(state.project?.settings?.music_volume ?? $("musicVolume")?.value ?? 0.18) }];
@@ -1238,6 +2107,7 @@ function addEnvelopePoint(event, target = "music") {
   const points = persistedEnvelope(target).concat([point]).sort((a, b) => a.time - b.time);
   state.envelope.selectedIndex = points.findIndex((p) => p === point);
   state.envelope.target = target;
+  state.videoSpeed.selectedIndex = -1;
   updateAutomationCursorReadout(point);
   saveEnvelope(target, points).catch((err) => setStatus(`Automation save failed: ${err.message}`));
 }
@@ -1296,7 +2166,7 @@ function getChunks(project = state.project) {
 
 function selectedChunk() { return getChunks().find((chunk) => chunk.id === state.selectedChunkId) || null; }
 function setScreenMode(mode) {
-  state.screenMode = ["projects", "chunk", "project"].includes(mode) ? mode : "project";
+  state.screenMode = ["projects", "chunk", "project", "preview", "group"].includes(mode) ? mode : "project";
   renderCentralScreen();
 }
 function selectChunk(chunkId) {
@@ -1308,21 +2178,111 @@ function selectChunk(chunkId) {
   renderCentralScreen();
   setActiveChunkNav(chunk.id);
 }
+function setSidePanelMode(mode) {
+  state.sidePanelMode = mode === "groups" ? "groups" : "chunks";
+  renderSidePanelMode();
+}
+function renderSidePanelMode() {
+  const isGroups = state.sidePanelMode === "groups";
+  $("chunkNavList")?.toggleAttribute("hidden", isGroups);
+  $("groupNavList")?.toggleAttribute("hidden", !isGroups);
+  $("chunksSideTab")?.classList.toggle("active", !isGroups);
+  $("groupsSideTab")?.classList.toggle("active", isGroups);
+  $("chunksSideTab")?.classList.toggle("secondary", isGroups);
+  $("groupsSideTab")?.classList.toggle("secondary", !isGroups);
+}
+function selectGroup(groupId) {
+  const group = groupTimelineSpans().find((item) => item.id === groupId);
+  if (!group) return;
+  state.selectedGroupId = group.id;
+  state.sidePanelMode = "groups";
+  state.screenMode = "group";
+  renderCentralScreen();
+  renderSidePanelMode();
+  setActiveGroupNav(group.id);
+  renderVideoGroupLanesHost();
+}
 function renderCentralScreen() {
   const isProjects = state.screenMode === "projects";
   const isChunk = state.screenMode === "chunk";
+  const isPreview = state.screenMode === "preview";
+  const isGroup = state.screenMode === "group";
   $("projectsScreen")?.classList.toggle("active", isProjects);
-  $("projectScreen")?.classList.toggle("active", !isProjects && !isChunk);
+  $("projectScreen")?.classList.toggle("active", !isProjects && !isChunk && !isPreview && !isGroup);
   $("chunkScreen")?.classList.toggle("active", isChunk);
+  $("previewScreen")?.classList.toggle("active", isPreview);
+  $("groupScreen")?.classList.toggle("active", isGroup);
   $("projectsModeTab")?.classList.toggle("active", isProjects);
-  $("projectModeTab")?.classList.toggle("active", !isProjects && !isChunk);
+  $("projectModeTab")?.classList.toggle("active", !isProjects && !isChunk && !isPreview && !isGroup);
   $("chunkModeTab")?.classList.toggle("active", isChunk);
+  $("previewModeTab")?.classList.toggle("active", isPreview);
   $("projectsModeTab")?.classList.toggle("secondary", !isProjects);
-  $("projectModeTab")?.classList.toggle("secondary", isProjects || isChunk);
+  $("projectModeTab")?.classList.toggle("secondary", isProjects || isChunk || isPreview || isGroup);
   $("chunkModeTab")?.classList.toggle("secondary", !isChunk);
+  $("previewModeTab")?.classList.toggle("secondary", !isPreview);
   renderProjectsList();
   if (isChunk) renderChunkDetail(selectedChunk());
+  if (isGroup) renderGroupDetail(selectedGroup());
+  if (isPreview) renderPreviewScreen();
 }
+
+function renderPreviewScreen() {
+  const frame = $("previewFrame");
+  if (!frame) return;
+  const group = selectedPreviewGroup();
+  const image = group?.image || {};
+  const video = group?.video || {};
+  const hasVideo = Boolean(video.url);
+  const hasImage = Boolean(image.url);
+  const aspect = image.aspect_ratio || state.project?.settings?.image_aspect_ratio || "vertical";
+  const isHorizontal = aspect === "horizontal";
+  frame.classList.toggle("horizontal", isHorizontal);
+  frame.classList.toggle("hasImage", hasImage && !hasVideo);
+  frame.classList.toggle("hasVideo", hasVideo);
+  const aspectLabel = $("previewAspectLabel");
+  if (aspectLabel) aspectLabel.textContent = isHorizontal ? "16:9" : "9:16";
+  const previewVideo = $("previewVideo");
+  if (previewVideo) {
+    previewVideo.loop = true;
+    previewVideo.muted = true;
+    previewVideo.playsInline = true;
+    applyPreviewVideoPlaybackRate();
+    if (hasVideo) {
+      const currentSrc = previewVideo.getAttribute("src") || "";
+      if (currentSrc !== video.url) {
+        previewVideo.src = video.url;
+        previewVideo.load();
+      }
+      previewVideo.hidden = false;
+      const playPromise = previewVideo.play();
+      if (playPromise?.catch) playPromise.catch(() => {});
+    } else {
+      if (!previewVideo.hidden || previewVideo.getAttribute("src")) {
+        previewVideo.pause();
+        previewVideo.removeAttribute("src");
+        previewVideo.load();
+      }
+      previewVideo.hidden = true;
+    }
+  }
+  if (hasVideo) {
+    frame.style.removeProperty("background-image");
+    $("previewTitle").textContent = group?.title || "Group video";
+    $("previewDescription").textContent = `Preview: Loop video · speed ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · ${groupVideoMetaText(group)}`;
+    $("previewImageHint").textContent = video.path ? `Video: ${video.path}` : "Selected group video preview.";
+  } else if (hasImage) {
+    frame.style.backgroundImage = `linear-gradient(180deg, rgba(8,11,17,.08), rgba(8,11,17,.38)), url("${image.url.replace(/"/g, "%22")}")`;
+    $("previewTitle").textContent = group?.title || "Group image";
+    $("previewDescription").textContent = `Preview: image · ${groupImageMetaText(group)}`;
+    $("previewImageHint").textContent = image.path ? `Image: ${image.path}` : "Selected group image preview.";
+  } else {
+    frame.style.removeProperty("background-image");
+    $("previewTitle").textContent = group ? `${group.title}: image ${groupImageStatus(group)}` : "Video preview placeholder";
+    $("previewDescription").textContent = group ? (group.summary || "Картинка для группы ещё не сгенерирована.") : "Здесь появится вертикальный видеоряд, синхронизированный со смысловыми группами чанков.";
+    $("previewImageHint").textContent = group ? "Для выбранной группы пока нет картинки — используйте генерацию в экране группы." : "Выберите группу с готовой картинкой, чтобы увидеть preview frame.";
+  }
+}
+
 function renderChunkDetail(chunk) {
   const root = $("chunks");
   const placeholder = $("chunkDetailPlaceholder");
@@ -1352,19 +2312,79 @@ function versionSettingsSummary(version) {
   return parts.length ? parts.join(" · ") : "No settings snapshot";
 }
 
+function chunkBoundaryType(chunk) {
+  return ["sentence", "paragraph", "section"].includes(chunk?.boundary_type) ? chunk.boundary_type : "sentence";
+}
+
 function renderChunks() {
   renderChunkDetail(state.screenMode === "chunk" ? selectedChunk() : null);
   renderChunkNavigator();
+  renderGroupNavigator();
 }
 
 function chunkNavSignature() {
-  return getChunks().map((chunk) => `${chunk.id}:${chunk.order}:${Boolean(selectedAudioUrlForChunk(chunk))}:${chunk.selected_version_id || ""}:${(chunk.text || "").slice(0, 48)}`).join("|");
+  return getChunks().map((chunk) => `${chunk.id}:${chunk.order}:${Boolean(selectedAudioUrlForChunk(chunk))}:${chunk.selected_version_id || ""}:${chunkBoundaryType(chunk)}:${(chunk.text || "").slice(0, 48)}`).join("|");
 }
 
 function setActiveChunkNav(chunkId) {
   state.chunkNav.activeId = chunkId || state.chunkNav.activeId;
   document.querySelectorAll(".chunkNavItem").forEach((item) => item.classList.toggle("active", item.dataset.chunkId === state.chunkNav.activeId));
   document.querySelectorAll(".chunk").forEach((item) => item.classList.toggle("focused", item.dataset.chunkId === state.chunkNav.activeId));
+}
+
+function setActiveGroupNav(groupId) {
+  state.selectedGroupId = groupId || state.selectedGroupId;
+  document.querySelectorAll(".groupNavItem").forEach((item) => item.classList.toggle("active", item.dataset.groupId === state.selectedGroupId));
+  document.querySelectorAll(".videoGroupLaneRow, .videoGroupBlock").forEach((item) => item.classList.toggle("selected", item.dataset.groupId === state.selectedGroupId));
+}
+
+function groupDetailSignature(group) {
+  if (!group) return "";
+  const image = group.image || {};
+  const video = group.video || {};
+  const imageTask = activeImageGroupTask(group.id);
+  const videoTask = activeVideoGroupTask(group.id);
+  const aiFields = ["visual_prompt", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "mood", "scene_type", "video_motion_intensity", "video_loop_notes", "source"]
+    .map((key) => `${key}:${group[key] ?? ""}`)
+    .join("|");
+  return [
+    group.id,
+    group.title || "",
+    group.summary || "",
+    group.start,
+    group.end,
+    group.duration,
+    (group.chunk_ids || []).join(","),
+    aiFields,
+    image.status || "",
+    image.url || "",
+    image.path || "",
+    image.width || "",
+    image.height || "",
+    image.aspect_ratio || "",
+    image.provider || "",
+    image.model || "",
+    image.seed ?? "",
+    image.error || "",
+    image.positive_prompt || "",
+    image.negative_prompt || "",
+    video.status || "",
+    video.url || "",
+    video.path || "",
+    video.width || "",
+    video.height || "",
+    video.frames || "",
+    video.fps || "",
+    video.model_checkpoint || "",
+    imageTask ? `${imageTask.id}:${imageTask.status}:${imageTask.progress_percent || 0}:${imageTask.stage || ""}` : "",
+    videoTask ? `${videoTask.id}:${videoTask.status}:${videoTask.progress_percent || 0}:${videoTask.stage || ""}` : "",
+    Boolean(state.project?.settings?.video_i2v_enabled),
+    Boolean(state.project?.settings?.image_exclude_people),
+  ].join("::");
+}
+
+function groupPromptInputId(groupId, key) {
+  return `groupPrompt_${String(groupId || "").replace(/[^A-Za-z0-9_-]/g, "_")}_${key}`;
 }
 
 function renderChunkNavigator(force = false) {
@@ -1389,17 +2409,387 @@ function renderChunkNavigator(force = false) {
     item.className = "chunkNavItem";
     item.dataset.chunkId = chunk.id;
     const ready = Boolean(selectedAudioUrlForChunk(chunk));
-    item.innerHTML = `<strong>#${chunk.order + 1}</strong><span>${escapeHtml((chunk.text || "").slice(0, 80))}</span><small class="${ready ? "ready" : "missing"}">${ready ? "generated" : "missing"}</small>`;
+    const boundary = chunkBoundaryType(chunk);
+    item.innerHTML = `<strong>#${chunk.order + 1}</strong><span>${escapeHtml((chunk.text || "").slice(0, 80))}</span><small class="${ready ? "ready" : "missing"}">${ready ? "generated" : "missing"} · ${escapeHtml(boundary)}</small>`;
     item.onclick = () => selectChunk(chunk.id);
     root.appendChild(item);
   }
   setActiveChunkNav(state.selectedChunkId || state.chunkNav.activeId || chunks[0]?.id || "");
 }
 
+function renderGroupNavigator() {
+  const root = $("groupNavList");
+  if (!root) return;
+  const groups = groupTimelineSpans();
+  root.innerHTML = "";
+  if (!groups.length) {
+    root.innerHTML = `<div class="chunkNavEmpty"><strong>Группы пока не найдены</strong><small>Сначала разделите текст на чанки.</small></div>`;
+    return;
+  }
+  for (const group of groups) {
+    const imageStatus = groupImageStatus(group);
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `groupNavItem image-${imageStatus}`;
+    item.dataset.groupId = group.id;
+    item.innerHTML = `
+      <strong>${escapeHtml(group.title)}</strong>
+      <span>${escapeHtml(group.summary)}</span>
+      <small>${escapeHtml(formatTime(group.start))}–${escapeHtml(formatTime(group.end))} · ${group.chunk_ids.length} chunk(s)</small>
+      <small class="imageStatusMini">image: ${escapeHtml(groupImageMetaText(group))}</small>
+    `;
+    item.onclick = () => selectGroup(group.id);
+    root.appendChild(item);
+  }
+  setActiveGroupNav(state.selectedGroupId || groups[0]?.id || "");
+}
+
+function renderGroupDetail(group, { force = false } = {}) {
+  const root = $("groupDetail");
+  const placeholder = $("groupDetailPlaceholder");
+  if (!root) return;
+  if (!group) {
+    state.groupDetail.signature = "";
+    root.innerHTML = "";
+    if (placeholder) placeholder.hidden = false;
+    return;
+  }
+  const signature = groupDetailSignature(group);
+  if (!force && root.dataset.groupId === group.id && state.groupDetail.signature === signature && root.dataset.rendered === "true") return;
+  state.groupDetail.signature = signature;
+  root.dataset.groupId = group.id;
+  root.dataset.rendered = "true";
+  root.innerHTML = "";
+  if (placeholder) placeholder.hidden = true;
+  const editableFields = [
+    ["title", "Title", "input"],
+    ["summary", "Summary", "textarea"],
+    ["visual_prompt", "Visual prompt", "textarea"],
+    ["negative_prompt", "Negative prompt", "textarea"],
+    ["animation_positive_prompt", "Animation positive prompt", "textarea"],
+    ["animation_negative_prompt", "Animation negative prompt", "textarea"],
+    ["mood", "Mood", "input"],
+    ["scene_type", "Scene type", "input"],
+    ["video_motion_intensity", "Video motion intensity", "input"],
+    ["video_loop_notes", "Video loop notes", "textarea"],
+  ];
+  const aiFieldsHtml = `
+    <section class="groupPromptEditor">
+      <div class="row between wrap">
+        <h4>Editable group prompts</h4>
+        <button type="button" class="saveGroupPromptsBtn secondary">Save prompts</button>
+      </div>
+      <div class="groupPromptGrid">
+        ${editableFields.map(([key, label, type]) => {
+          const id = groupPromptInputId(group.id, key);
+          const value = group[key] ?? "";
+          return type === "textarea"
+            ? `<label>${escapeHtml(label)}<textarea id="${escapeHtml(id)}" data-group-field="${escapeHtml(key)}">${escapeHtml(value)}</textarea></label>`
+            : `<label>${escapeHtml(label)}<input id="${escapeHtml(id)}" type="text" data-group-field="${escapeHtml(key)}" value="${escapeHtml(value)}" /></label>`;
+        }).join("")}
+      </div>
+      ${group.source ? `<p class="groupPromptSource">Source: ${escapeHtml(group.source)}</p>` : ""}
+    </section>
+  `;
+  const image = group.image || {};
+  const video = group.video || {};
+  const imageStatus = groupImageStatus(group);
+  const imageExists = Boolean(image.url || image.path || image.status === "done" || image.status === "fallback");
+  const imageTask = activeImageGroupTask(group.id);
+  const imageBusy = Boolean(imageTask);
+  const videoStatus = groupVideoStatus(group);
+  const videoExists = Boolean(video.url || video.path || video.status === "ready" || video.status === "done");
+  const videoBusy = Boolean(activeVideoGroupTask(group.id));
+  const i2vEnabled = Boolean(state.project?.settings?.video_i2v_enabled);
+  const imagePreviewHtml = image.url
+    ? `<img class="groupImageThumb" src="${escapeHtml(image.url)}" alt="${escapeHtml(group.title)} image preview" />`
+    : `<div class="groupImageThumb missing">No image preview</div>`;
+  const backendLabel = videoBackendLabel();
+  const videoPreviewHtml = video.url
+    ? `<video class="groupImageThumb" src="${escapeHtml(video.url)}" controls muted loop playsinline></video>`
+    : `<div class="groupImageThumb missing">${video.error ? `${escapeHtml(backendLabel)} failed: ${escapeHtml(video.error)}` : `No ${escapeHtml(backendLabel)} video yet`}</div>`;
+  const promptHtml = (image.positive_prompt || image.negative_prompt) ? `
+    <details class="groupImagePrompts">
+      <summary>Prompt used</summary>
+      <h4>Positive prompt</h4>
+      <pre>${escapeHtml(image.positive_prompt || "")}</pre>
+      <h4>Negative prompt used</h4>
+      <pre>${escapeHtml(image.negative_prompt || "")}</pre>
+    </details>
+  ` : "";
+  const card = document.createElement("article");
+  card.className = "groupDetailCard";
+  card.innerHTML = `
+    <div class="groupDetailHead">
+      <div>
+        <h3>${escapeHtml(group.title)}</h3>
+        <p>${escapeHtml(group.summary)}</p>
+      </div>
+      <span class="groupDurationBadge">${escapeHtml(formatTime(group.duration))}</span>
+    </div>
+    <dl class="groupMetaGrid">
+      <div><dt>Start</dt><dd>${escapeHtml(formatTime(group.start))}</dd></div>
+      <div><dt>End</dt><dd>${escapeHtml(formatTime(group.end))}</dd></div>
+      <div><dt>Duration</dt><dd>${escapeHtml(formatTime(group.duration))}</dd></div>
+      <div><dt>Chunk ids</dt><dd>${escapeHtml(group.chunk_ids.join(", "))}</dd></div>
+    </dl>
+    ${aiFieldsHtml}
+    <section class="groupImagePanel image-${escapeHtml(imageStatus)}">
+      <div class="groupImageHead">
+        <div>
+          <h4>Картинка группы</h4>
+          <p>${imageBusy ? "Картинка в очереди/генерируется" : escapeHtml(groupImageMetaText(group))}</p>
+          ${image.error ? `<p class="groupImageError">${escapeHtml(image.error)}</p>` : ""}
+        </div>
+        <div class="row wrap">
+          <button type="button" class="generateGroupImageBtn" ${imageBusy ? "disabled" : ""}>${imageExists ? "Перегенерировать" : "Сгенерировать картинку"}</button>
+          <button type="button" class="generateGroupVideoBtn" ${videoBusy || !imageExists || !i2vEnabled ? "disabled" : ""}>${videoExists ? `Перегенерировать ${escapeHtml(backendLabel)}-видео` : `Сгенерировать ${escapeHtml(backendLabel)}-видео`}</button>
+        </div>
+      </div>
+      <div class="groupImageBody">
+        ${imagePreviewHtml}
+        ${videoPreviewHtml}
+        <dl class="groupImageMeta">
+          <div><dt>Status</dt><dd>${escapeHtml(imageStatus)}</dd></div>
+          <div><dt>Provider</dt><dd>${escapeHtml(image.provider || "—")}</dd></div>
+          <div><dt>Model</dt><dd>${escapeHtml(image.model || "—")}</dd></div>
+          <div><dt>Aspect</dt><dd>${escapeHtml(image.aspect_ratio || "—")}</dd></div>
+          <div><dt>Size</dt><dd>${escapeHtml(image.width && image.height ? `${image.width}×${image.height}` : "—")}</dd></div>
+          <div><dt>Seed</dt><dd>${escapeHtml(image.seed ?? "—")}</dd></div>
+          <div><dt>Video</dt><dd>${escapeHtml(groupVideoMetaText(group))}</dd></div>
+        </dl>
+        ${video.error ? `<p class="groupImageError">${escapeHtml(video.error)}</p>` : ""}
+      </div>
+      ${promptHtml}
+    </section>
+  `;
+  const savePromptsButton = card.querySelector(".saveGroupPromptsBtn");
+  const generateImageButton = card.querySelector(".generateGroupImageBtn");
+  const generateVideoButton = card.querySelector(".generateGroupVideoBtn");
+  if (savePromptsButton) savePromptsButton.onclick = () => saveGroupPrompts(group.id, card);
+  else console.warn("Group prompt save button missing", { groupId: group.id });
+  if (generateImageButton) generateImageButton.onclick = () => enqueueGroupImage(group.id, imageExists);
+  else console.warn("Group image button missing", { groupId: group.id });
+  if (generateVideoButton) generateVideoButton.onclick = () => enqueueGroupVideo(group.id, videoExists);
+  else console.warn("Group video button missing", { groupId: group.id });
+  root.appendChild(card);
+}
+
+async function saveGroupPrompts(groupId, card) {
+  if (!groupId || !card) return;
+  const payload = {};
+  card.querySelectorAll("[data-group-field]").forEach((field) => {
+    payload[field.dataset.groupField] = field.value || "";
+  });
+  try {
+    setStatus("Saving group prompts…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}${activeProjectQuery()}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    if (data.project) state.project = data.project;
+    buildTimelineArrangement();
+    render();
+    setStatus("Group prompts saved");
+  } catch (err) {
+    setStatus(`Group prompt save failed: ${err.message}`);
+  }
+}
+
+function setGroupAiStatus(message, tone = "") {
+  const el = $("groupAiStatus");
+  if (!el) return;
+  el.textContent = message || "Ключ можно задать в настройках проекта или через XAI_API_KEY.";
+  el.className = `groupAiStatus ${tone}`.trim();
+}
+
+function activeGrokGroupsTask() {
+  const projectId = state.project?.id || state.activeProjectId || "";
+  const queues = [state.queue || [], state.project?.queue || []];
+  for (const tasks of queues) {
+    const task = (tasks || []).find((item) => item?.kind === "grok_groups"
+      && (!projectId || item.project_id === projectId)
+      && ["queued", "running"].includes(item.status));
+    if (task) return task;
+  }
+  return null;
+}
+
+function isGrokGroupingActive() {
+  return Boolean(activeGrokGroupsTask());
+}
+
+function syncGroupAiTaskUi() {
+  const task = activeGrokGroupsTask();
+  const button = $("generateAiGroupsBtn");
+  if (button) button.disabled = Boolean(task);
+  if (!task) return false;
+  const message = task.status === "queued"
+    ? "Grok в очереди..."
+    : `Grok группирует...${task.stage ? ` ${task.stage}` : ""}`;
+  setGroupAiStatus(message, "busy");
+  return true;
+}
+
+function syncImageTaskUi() {
+  const allButton = $("queueAllImagesBtn");
+  const allVideosButton = $("queueAllVideosBtn");
+  const activeAny = Boolean(activeImageGroupTask() || activeVideoGroupTask());
+  syncBulkVideoButtonLabel();
+  if (allButton) allButton.disabled = activeAny;
+  if (allVideosButton) allVideosButton.disabled = activeAny || !state.project?.settings?.video_i2v_enabled;
+  if (state.screenMode === "group") renderGroupDetail(selectedGroup());
+  return activeAny;
+}
+
+async function enqueueGroupVideo(groupId, force = false) {
+  if (!groupId) return;
+  try {
+    await saveSettings();
+    const backend = videoBackendLabel();
+    setStatus(force ? `Queueing ${backend} video regeneration…` : `Queueing ${backend} video generation…`, true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/video${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ force: Boolean(force) }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`${backend} group video queued`, true);
+  } catch (err) {
+    setStatus(`${videoBackendLabel()} video queue failed: ${err.message}`);
+  }
+}
+
+async function enqueueGroupImage(groupId, force = false) {
+  if (!groupId) return;
+  try {
+    await saveSettings();
+    setStatus(force ? "Queueing group image regeneration…" : "Queueing group image generation…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/image${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ force: Boolean(force) }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus("Group image queued", true);
+  } catch (err) {
+    setStatus(`Group image queue failed: ${err.message}`);
+  }
+}
+
+async function enqueueAllGroupImages() {
+  try {
+    await saveSettings();
+    const missingOnly = $("imageMissingOnly")?.checked !== false;
+    setStatus("Queueing group images…", true);
+    const data = await api(`/api/project/groups/images${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly, force: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus("Group images queued", true);
+  } catch (err) {
+    setStatus(`Group images queue failed: ${err.message}`);
+  }
+}
+
+async function enqueueAllGroupVideos() {
+  try {
+    await saveSettings();
+    const missingOnly = $("imageMissingOnly")?.checked !== false;
+    const backend = videoBackendLabel();
+    setStatus(`Queueing ${backend} group videos…`, true);
+    const data = await api(`/api/project/groups/videos${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly, force: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`${backend} group videos queued: ${(data.queued_tasks || []).length}, skipped: ${data.skipped_count || 0}`, true);
+  } catch (err) {
+    setStatus(`${videoBackendLabel()} videos queue failed: ${err.message}`);
+  }
+}
+
+async function generateAiGroups() {
+  const button = $("generateAiGroupsBtn");
+  const chunks = getChunks();
+  if (isGrokGroupingActive()) {
+    syncGroupAiTaskUi();
+    setStatus("Grok AI grouping is already queued/running", true);
+    return;
+  }
+  if (!state.project) {
+    setGroupAiStatus("Откройте проект перед AI-группировкой.", "error");
+    setStatus("Open a project first");
+    return;
+  }
+  if (!chunks.length) {
+    setGroupAiStatus("Сначала разделите текст на чанки.", "error");
+    setStatus("Split text into chunks first");
+    return;
+  }
+  if (!state.project?.settings?.xai_api_key_configured) {
+    const message = "Grok/xAI API key is not configured. Задайте ключ в настройках проекта или через XAI_API_KEY и перезапустите XTTS Studio.";
+    setGroupAiStatus(message, "error");
+    setStatus(message);
+    return;
+  }
+  const previousGroupId = state.selectedGroupId;
+  try {
+    if (button) button.disabled = true;
+    setGroupAiStatus("Grok ставится в очередь…", "busy");
+    setStatus("Queueing Grok AI grouping…", true);
+    const data = await api(`/api/project/groups/ai${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ fallback_on_error: true, strategy: "auto", max_section_chunks: 40, max_request_chars: 22000, exclude_people_from_images: Boolean($("imageExcludePeople")?.checked) }),
+    });
+    state.project = data.project || state.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    patchProjectChunksFromProject(state.project);
+    buildTimelineArrangement();
+    const groups = videoGroups();
+    state.selectedGroupId = groups.some((group) => group.id === previousGroupId) ? previousGroupId : state.selectedGroupId;
+    state.sidePanelMode = "groups";
+    state.screenMode = "group";
+    render();
+    syncGroupAiTaskUi();
+    setStatus("Grok AI grouping queued", true);
+  } catch (err) {
+    const rawMessage = err?.message || String(err);
+    const message = rawMessage === "Not Found"
+      ? "AI grouping endpoint /api/project/groups/ai is not available. Restart XTTS Studio backend so the latest studio_server.py is loaded."
+      : rawMessage;
+    setGroupAiStatus(`Ошибка AI-группировки: ${message}`, "error");
+    setStatus(`AI grouping failed: ${message}`);
+  } finally {
+    if (button && !isGrokGroupingActive()) button.disabled = false;
+  }
+}
+
 function renderChunkCard(chunk) {
   const selectedVersion = selectedVersionForChunk(chunk);
   const selectedLabel = selectedVersion ? (selectedVersion.label || selectedVersion.id) : "none";
   const selectedAudioUrl = selectedAudioUrlForChunk(chunk);
+  const boundary = chunkBoundaryType(chunk);
+  const ttsText = chunk.tts_text || chunk.stressed_text || chunk.text || "";
+  const hasStressedText = Boolean((chunk.stressed_text || chunk.tts_text || "").includes("\u0301"));
+  const stressLabel = hasStressedText ? ` · stress: ${escapeHtml(chunk.stress_source || "grok")}` : "";
   const card = document.createElement("article");
   card.className = "chunk";
   card.id = `chunk-card-${chunk.id}`;
@@ -1408,9 +2798,13 @@ function renderChunkCard(chunk) {
   card.innerHTML = `
     <div class="chunkHead">
       <strong>Chunk ${chunk.order + 1}</strong>
-      <span>start ${chunk.start_time || 0}s · selected ${escapeHtml(selectedLabel)} · duration ${chunk.duration_sec || 0}s · pause after ${(chunk.pause_after ?? 0)}s</span>
+      <span><small class="boundaryBadge">${escapeHtml(boundary)}</small> start ${chunk.start_time || 0}s · selected ${escapeHtml(selectedLabel)} · duration ${chunk.duration_sec || 0}s · pause after ${(chunk.pause_after ?? 0)}s${stressLabel}</span>
     </div>
-    <textarea class="chunkText">${escapeHtml(chunk.text || "")}</textarea>
+    <label class="chunkTtsLabel">TTS text ${hasStressedText ? "<small class=\"stressBadge\">stress marks visible/editable</small>" : "<small>TTS uses this text</small>"}<textarea class="chunkTtsText">${escapeHtml(ttsText)}</textarea></label>
+    <details class="originalTextDetails">
+      <summary>Original text (kept for reference)</summary>
+      <textarea class="chunkText">${escapeHtml(chunk.text || "")}</textarea>
+    </details>
     <div class="row wrap">
       <label>Pause after, sec <input class="pauseAfter" type="number" min="0" max="10" step="0.01" value="${clampPauseAfter(chunk.pause_after ?? 0)}" /></label>
       <button type="button" class="saveChunk secondary">Save</button>
@@ -1423,6 +2817,7 @@ function renderChunkCard(chunk) {
   `;
   card.querySelector(".saveChunk").onclick = () => updateChunk(chunk.id, {
     text: card.querySelector(".chunkText").value,
+    tts_text: card.querySelector(".chunkTtsText").value,
     pause_after: clampPauseAfter(card.querySelector(".pauseAfter").value),
   });
   card.querySelector(".generateChunk").onclick = () => generateChunk(chunk.id, card);
@@ -1470,9 +2865,59 @@ function replaceChunkCard(chunk) {
 
 function renderExport() {
   const exp = state.project.export;
-  $("exportResult").innerHTML = exp && exp.url
-    ? `<a href="${exp.url}" download>Download ${exp.path}</a><p>${exp.duration_sec}s · ${exp.sample_rate} Hz</p><audio controls src="${exp.url}"></audio>`
-    : "No export yet.";
+  const root = $("exportResult");
+  if (!root) return;
+  if (!exp || !exp.url) {
+    root.innerHTML = "No export yet.";
+    return;
+  }
+  const isVideo = exp.media_type === "video" || /\.(mp4|webm|mov)$/i.test(exp.path || "");
+  const details = [
+    exp.duration_sec ? `${escapeHtml(exp.duration_sec)}s` : "",
+    exp.sample_rate ? `${escapeHtml(exp.sample_rate)} Hz` : "",
+    exp.format ? String(exp.format).toUpperCase() : "",
+    exp.width && exp.height ? `${escapeHtml(exp.width)}×${escapeHtml(exp.height)}` : "",
+    exp.fps ? `${escapeHtml(exp.fps)} fps` : "",
+  ].filter(Boolean).join(" · ");
+  root.innerHTML = `
+    <a href="${exp.url}" download>Download ${escapeHtml(exp.path || "export")}</a>
+    <p>${details}</p>
+    ${isVideo ? `<video controls src="${exp.url}" class="exportPreviewVideo"></video>` : `<audio controls src="${exp.url}"></audio>`}
+    ${exp.timeline_fidelity ? `<p class="imageResolvedSettings">${escapeHtml(exp.timeline_fidelity)}</p>` : ""}
+  `;
+}
+
+function exportPayloadFromUi() {
+  const sampleRateValue = $("exportSampleRate")?.value || "";
+  return {
+    export_type: $("exportType")?.value || "audio",
+    audio_format: $("exportAudioFormat")?.value || "wav",
+    audio_bitrate: $("exportAudioBitrate")?.value || "192k",
+    sample_rate: sampleRateValue ? Number(sampleRateValue) : null,
+    channels: Number($("exportChannels")?.value || 1),
+    video_format: $("exportVideoFormat")?.value || "mp4",
+    orientation: $("exportOrientation")?.value || "auto",
+    resolution: $("exportResolution")?.value || "720p",
+    fps: Number($("exportFps")?.value || 30),
+    video_quality: $("exportVideoQuality")?.value || "medium",
+    video_fit: $("exportVideoFit")?.value || "cover",
+  };
+}
+
+function syncExportSettingsUi() {
+  const isVideo = ($("exportType")?.value || "audio") === "video";
+  for (const id of ["exportVideoFormat", "exportOrientation", "exportResolution", "exportFps", "exportVideoFit", "exportVideoQuality"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.closest("label")?.classList.toggle("disabledSetting", !isVideo);
+    el.disabled = !isVideo;
+  }
+  const audioFormat = $("exportAudioFormat")?.value || "wav";
+  const bitrate = $("exportAudioBitrate");
+  if (bitrate) {
+    bitrate.disabled = audioFormat === "wav" || audioFormat === "flac";
+    bitrate.closest("label")?.classList.toggle("disabledSetting", bitrate.disabled);
+  }
 }
 
 function renderCurrentProjectInfo() {
@@ -1524,9 +2969,12 @@ async function loadProjects() {
 function resetTransientProjectUi() {
   stopSequence();
   state.selectedChunkId = "";
+  state.selectedGroupId = "";
+  state.sidePanelMode = "chunks";
   state.chunkNav = { activeId: "", signature: "" };
   state.musicClip = { selectedId: "", draggingId: "", selectedSourceId: "", selectedLaneId: "" };
   state.envelope.selectedIndex = -1;
+  state.videoSpeed.selectedIndex = -1;
   state.timeline.cursorSec = 0;
 }
 
@@ -1597,6 +3045,8 @@ function render() {
   setSequenceStatus(state.sequence.status);
   const chunks = getChunks();
   if (state.selectedChunkId && !chunks.some((chunk) => chunk.id === state.selectedChunkId)) state.selectedChunkId = "";
+  const groups = videoGroups();
+  if (state.selectedGroupId && !groups.some((group) => group.id === state.selectedGroupId)) state.selectedGroupId = "";
   if (!state.selectedChunkId && chunks.length && state.screenMode === "chunk") state.selectedChunkId = chunks[0].id;
   state.chunkNav.activeId = state.selectedChunkId || state.chunkNav.activeId || chunks[0]?.id || "";
   safeRenderStep("chunk navigator", () => renderChunkNavigator(true));
@@ -1605,9 +3055,14 @@ function render() {
   safeRenderStep("timeline", renderTimeline);
   safeRenderStep("central screen", renderCentralScreen);
   safeRenderStep("chunk navigator refresh", () => renderChunkNavigator(true));
+  safeRenderStep("group navigator", renderGroupNavigator);
+  safeRenderStep("side panel mode", renderSidePanelMode);
   safeRenderStep("progress", renderProgress);
   safeRenderStep("queue", renderQueue);
+  safeRenderStep("Grok AI task UI", syncGroupAiTaskUi);
+  safeRenderStep("image task UI", syncImageTaskUi);
   safeRenderStep("music library", renderMusicLibraryPanel);
+  safeRenderStep("export settings", syncExportSettingsUi);
   safeRenderStep("export", renderExport);
   safeRenderStep("current project", renderCurrentProjectInfo);
   safeRenderStep("projects list", renderProjectsList);
@@ -1624,6 +3079,8 @@ function canFullRefreshProjectUi() {
 function renderQueueOnly() {
   renderProgress();
   renderQueue();
+  syncGroupAiTaskUi();
+  syncImageTaskUi();
   renderHealth();
 }
 
@@ -1680,6 +3137,45 @@ async function refreshExportOnly() {
   if (!state.sequence.active) setStatus(project.status?.message || "Export updated", project.status?.busy);
 }
 
+async function refreshVideoGroupsOnly() {
+  const project = await api(`/api/project${activeProjectQuery()}`);
+  if (!state.project) {
+    state.project = project;
+  } else {
+    state.project.arrangement = project.arrangement;
+    state.project.status = project.status;
+    state.project.timeline_duration_sec = project.timeline_duration_sec;
+    state.project.queue = project.queue || state.project.queue;
+    state.project.progress = project.progress || state.project.progress;
+  }
+  patchProjectChunksFromProject(project);
+  buildTimelineArrangement();
+  const groups = videoGroups();
+  state.selectedGroupId = groups[0]?.id || state.selectedGroupId || "";
+  state.sidePanelMode = "groups";
+  state.screenMode = "group";
+  render();
+  setGroupAiStatus("AI-группировка готова", "success");
+  if (!state.sequence.active) setStatus("AI-группировка готова");
+}
+
+async function refreshProjectImagesOnly() {
+  const project = await api(`/api/project${activeProjectQuery()}`);
+  if (!state.project) {
+    state.project = project;
+  } else {
+    state.project.arrangement = project.arrangement;
+    state.project.status = project.status;
+    state.project.timeline_duration_sec = project.timeline_duration_sec;
+    state.project.queue = project.queue || state.project.queue;
+    state.project.progress = project.progress || state.project.progress;
+  }
+  patchProjectChunksFromProject(project);
+  buildTimelineArrangement();
+  render();
+  if (!state.sequence.active) setStatus("Group image updated");
+}
+
 function taskChunkId(task) {
   return task?.result_chunk_id || task?.chunk_id || null;
 }
@@ -1687,6 +3183,8 @@ function taskChunkId(task) {
 async function refreshCompletedTaskChunks(previousStatuses, tasks) {
   const chunkIds = new Set();
   let exportCompleted = false;
+  let grokGroupsCompleted = false;
+  let imageGroupCompleted = false;
   for (const task of tasks) {
     const previous = previousStatuses.get(task.id);
     if (previous && previous !== "done" && task.status === "done") {
@@ -1695,13 +3193,25 @@ async function refreshCompletedTaskChunks(previousStatuses, tasks) {
         if (chunkId) chunkIds.add(chunkId);
       } else if (task.kind === "export") {
         exportCompleted = true;
+      } else if (task.kind === "grok_groups") {
+        grokGroupsCompleted = true;
+      } else if (task.kind === "image_group") {
+        imageGroupCompleted = true;
+      } else if (task.kind === "video_group") {
+        imageGroupCompleted = true;
       }
+    } else if (previous && previous !== "failed" && task.status === "failed" && task.kind === "grok_groups") {
+      const message = task.message || "Grok AI grouping failed";
+      setGroupAiStatus(`Ошибка AI-группировки: ${message}`, "error");
+      setStatus(`AI grouping failed: ${message}`);
     }
   }
   for (const chunkId of chunkIds) {
     await refreshChunkBlock(chunkId).catch((err) => setStatus(`Chunk refresh failed: ${err.message}`));
   }
   if (exportCompleted) await refreshExportOnly().catch((err) => setStatus(`Export refresh failed: ${err.message}`));
+  if (grokGroupsCompleted) await refreshVideoGroupsOnly().catch((err) => setStatus(`AI groups refresh failed: ${err.message}`));
+  if (imageGroupCompleted) await refreshProjectImagesOnly().catch((err) => setStatus(`Image refresh failed: ${err.message}`));
 }
 
 function rememberTaskStatuses(tasks) {
@@ -1738,7 +3248,8 @@ async function generateChunk(id, card) {
   try {
     setStatus("Saving chunk and queueing generation…", true);
       const payload = {
-        text: card.querySelector(".chunkText").value,
+        text: card.querySelector(".chunkText")?.value || card.querySelector(".chunkTtsText")?.value || "",
+        tts_text: card.querySelector(".chunkTtsText")?.value || "",
         pause_after: clampPauseAfter(card.querySelector(".pauseAfter").value),
       };
     await updateChunk(id, payload);
@@ -1761,6 +3272,8 @@ async function refreshQueue() {
   const previousStatuses = new Map(state.taskStatuses);
   state.queue = data.queue || [];
   state.progress = data.progress || null;
+  if (state.project) state.project.queue = state.queue;
+  if (state.project) state.project.progress = state.progress;
   await refreshCompletedTaskChunks(previousStatuses, state.queue);
   rememberTaskStatuses(state.queue);
   if (!state.project) return;
@@ -1800,8 +3313,8 @@ $("splitBtn").onclick = async () => {
     if (!fullTextInput || !maxCharsInput || !splitMinInput || !splitMaxInput) throw new Error("Split controls are missing from DOM");
     const text = fullTextInput.value;
     const maxChars = Number(maxCharsInput.value);
-    const split_pause_after_min = Number(splitMinInput.value);
-    const split_pause_after_max = Number(splitMaxInput.value);
+    const split_pause_after_min = Number.isFinite(Number(splitMinInput.value)) ? Number(splitMinInput.value) : SPLIT_SENTENCE_PAUSE_MIN_SEC;
+    const split_pause_after_max = Number.isFinite(Number(splitMaxInput.value)) ? Number(splitMaxInput.value) : SPLIT_SENTENCE_PAUSE_MAX_SEC;
     await api(`/api/project/settings${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(settingsPayload()) });
     setStatus("Splitting…", true);
     state.project = await api(`/api/chunks/split${activeProjectQuery()}`, {
@@ -1849,6 +3362,52 @@ if (musicModeSelect) {
     renderTransportLanes();
     saveMusicArrangement({ mode }).catch((err) => setStatus(`Music mode save failed: ${err.message}`));
   };
+}
+
+const imageAspectRatioSelect = $("imageAspectRatio");
+if (imageAspectRatioSelect) {
+  imageAspectRatioSelect.onchange = () => {
+    updateResolvedImageSettingsHint();
+  };
+}
+
+const imageQualitySlider = $("imageQualityPreset");
+if (imageQualitySlider) {
+  imageQualitySlider.oninput = () => setImageQualityPreset(IMAGE_QUALITY_ORDER[clamp(imageQualitySlider.value, 0, 2)] || "balanced");
+}
+
+const videoI2vQualitySlider = $("videoI2vQualityPreset");
+if (videoI2vQualitySlider) {
+  videoI2vQualitySlider.oninput = () => setVideoI2vQualityPreset(VIDEO_I2V_QUALITY_ORDER[clamp(videoI2vQualitySlider.value, 0, 2)] || "balanced");
+}
+
+document.querySelectorAll(".imageQualityButton").forEach((button) => {
+  button.onclick = () => setImageQualityPreset(button.dataset.quality || "balanced");
+});
+
+document.querySelectorAll(".videoI2vQualityButton").forEach((button) => {
+  button.onclick = () => setVideoI2vQualityPreset(button.dataset.quality || "balanced");
+});
+$("videoI2vMotionStyle")?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
+$("videoI2vWorkflowMode")?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
+$("videoI2vEnabled")?.addEventListener("change", () => {
+  syncBulkVideoButtonLabel();
+  syncImageTaskUi();
+});
+$("videoI2vTargetDurationSec")?.addEventListener("input", updateResolvedVideoI2vSettingsHint);
+$("videoI2vPreviewPlaybackRate")?.addEventListener("input", updateResolvedVideoI2vSettingsHint);
+$("videoI2vPingpong")?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
+for (const id of ["videoI2vGrokModel", "videoI2vGrokDurationSec", "videoI2vGrokResolution", "videoI2vGrokAspectRatioMode", "videoI2vGrokLoopPostprocess", "videoI2vGrokCrossfadeSec"]) {
+  $(id)?.addEventListener("input", updateResolvedVideoI2vSettingsHint);
+  $(id)?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
+}
+
+const checkComfyuiBtn = $("checkComfyuiBtn");
+if (checkComfyuiBtn) checkComfyuiBtn.onclick = checkComfyuiStatus;
+
+for (const id of ["imageModel", "imageWorkflowMode"]) {
+  const el = $(id);
+  if (el) el.addEventListener("change", renderFluxWorkflowNote);
 }
 
 $("timelineScrubber").oninput = () => {
@@ -1955,6 +3514,21 @@ $("voiceAutomationLane").addEventListener("contextmenu", (event) => {
   if (state.envelope.selectedIndex >= 0) deleteEnvelopePoint("voice");
 });
 
+const videoSpeedAutomationLane = $("videoSpeedAutomationLane");
+if (videoSpeedAutomationLane) {
+  videoSpeedAutomationLane.addEventListener("click", (event) => {
+    if (event.target.closest?.(".envelopePoint")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    addVideoSpeedPoint(event);
+  });
+  videoSpeedAutomationLane.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (state.videoSpeed.selectedIndex >= 0) deleteVideoSpeedPoint();
+  });
+}
+
 function clampTimelineZoom(value) {
   return clamp(value, TIMELINE_ZOOM_MIN, TIMELINE_ZOOM_MAX);
 }
@@ -1991,7 +3565,11 @@ $("zoomFitBtn").onclick = () => {
   setZoom(available / visibleDuration, { anchorTime: state.timeline.cursorSec });
 };
 
-window.addEventListener("resize", updatePlayheadPosition);
+window.addEventListener("resize", () => {
+  const currentHeight = $("timelineTransport")?.getBoundingClientRect?.().height || Number(localStorage.getItem(TIMELINE_PANEL_HEIGHT_KEY)) || 660;
+  setTimelinePanelHeight(currentHeight, { persist: true });
+  updatePlayheadPosition();
+});
 
 window.addEventListener("scroll", () => {
   if (state.screenMode !== "chunk") return;
@@ -2028,6 +3606,11 @@ document.addEventListener("keydown", (event) => {
   if ((event.key === "Delete" || event.key === "Backspace") && state.envelope.selectedIndex >= 0) {
     event.preventDefault();
     deleteEnvelopePoint();
+    return;
+  }
+  if ((event.key === "Delete" || event.key === "Backspace") && state.videoSpeed.selectedIndex >= 0) {
+    event.preventDefault();
+    deleteVideoSpeedPoint();
   }
 });
 
@@ -2128,8 +3711,9 @@ $("generateAllBtn").onclick = async () => {
 $("exportBtn").onclick = async () => {
   try {
     await saveSettings();
-    setStatus("Queueing export…", true);
-    const data = await api(`/api/queue/export${activeProjectQuery()}`, { method: "POST", body: "{}" });
+    const payload = exportPayloadFromUi();
+    setStatus(`Queueing ${payload.export_type === "video" ? "video" : payload.audio_format.toUpperCase()} export…`, true);
+    const data = await api(`/api/queue/export${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(payload) });
     state.project = data.project;
     state.queue = data.queue || state.queue;
     rememberTaskStatuses(state.queue);
@@ -2138,14 +3722,33 @@ $("exportBtn").onclick = async () => {
   } catch (err) { setStatus(`Error: ${err.message}`); }
 };
 
+for (const id of ["exportType", "exportAudioFormat", "exportAudioBitrate", "exportSampleRate", "exportChannels", "exportVideoFormat", "exportOrientation", "exportResolution", "exportFps", "exportVideoFit", "exportVideoQuality"]) {
+  $(id)?.addEventListener("change", syncExportSettingsUi);
+  $(id)?.addEventListener("input", syncExportSettingsUi);
+}
+
 $("projectModeTab").onclick = () => setScreenMode("project");
 $("projectsModeTab").onclick = () => { loadProjects().catch((err) => setStatus(`Projects load failed: ${err.message}`)); setScreenMode("projects"); };
 $("chunkModeTab").onclick = () => setScreenMode("chunk");
+$("previewModeTab").onclick = () => setScreenMode("preview");
 $("backToProjectBtn").onclick = () => setScreenMode("project");
+$("backToProjectFromGroupBtn").onclick = () => setScreenMode("project");
+const generateAiGroupsBtn = $("generateAiGroupsBtn");
+if (generateAiGroupsBtn) generateAiGroupsBtn.onclick = () => generateAiGroups();
+const queueAllImagesBtn = $("queueAllImagesBtn");
+if (queueAllImagesBtn) queueAllImagesBtn.onclick = () => enqueueAllGroupImages();
+const queueAllVideosBtn = $("queueAllVideosBtn");
+if (queueAllVideosBtn) queueAllVideosBtn.onclick = () => enqueueAllGroupVideos();
+$("chunksSideTab").onclick = () => setSidePanelMode("chunks");
+$("groupsSideTab").onclick = () => setSidePanelMode("groups");
 $("refreshQueueBtn").onclick = refreshQueue;
 const clearCompletedQueueBtn = $("clearCompletedQueueBtn");
 if (clearCompletedQueueBtn) clearCompletedQueueBtn.onclick = () => clearCompletedQueueTasks().catch((err) => setStatus(`Clear completed failed: ${err.message}`));
-$("manualReloadBtn").onclick = () => window.location.reload();
+$("manualReloadBtn").onclick = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("studioReload", `${FRONTEND_BUILD}-${Date.now()}`);
+  window.location.replace(url.toString());
+};
 $("createProjectBtn").onclick = () => createProject().catch((err) => setStatus(`Create project failed: ${err.message}`));
 $("importTextBtn").onclick = () => importTextToProject().catch((err) => setStatus(`Import text failed: ${err.message}`));
 
@@ -2480,6 +4083,7 @@ async function initStudio() {
     frontendBuild: FRONTEND_BUILD,
     decodeCacheLoaded: typeof window.XTTSStudio?.cachedDecodeAudioUrl === "function",
   });
+  initTimelinePanelResize();
   await loadHealth().catch(() => {});
   const projects = await loadProjects();
   if (projects.last_active_project_id) {
