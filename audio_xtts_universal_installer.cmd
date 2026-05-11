@@ -254,10 +254,6 @@ exit /b 0
 :install_video_resources
 echo.
 echo Installing optional ComfyUI video resources. Failures here will not fail the XTTS install.
-if not exist "ComfyUI_windows_portable\ComfyUI\main.py" (
-  echo WARNING: ComfyUI_windows_portable\ComfyUI\main.py was not found.
-  echo Optional resource scripts may fail until ComfyUI portable is installed or unpacked at that path.
-)
 if exist "install_optional_video_resources.cmd" (
   call install_optional_video_resources.cmd --no-pause
 ) else (

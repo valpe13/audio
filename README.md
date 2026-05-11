@@ -44,7 +44,9 @@ or separately after the base install:
 install_optional_video_resources.cmd
 ```
 
-Optional video setup calls the existing AnimateDiff/HotshotXL helpers with [`--yes`](README.md) where they support noninteractive operation. It warns if [`ComfyUI_windows_portable/ComfyUI/main.py`](ComfyUI_windows_portable/ComfyUI/main.py) is missing and never fails the base XTTS install if optional video downloads fail. [`xtts_api/install_svd_xt_model.cmd`](xtts_api/install_svd_xt_model.cmd) remains intentionally interactive because Hugging Face may require accepting model terms or setting [`HF_TOKEN`](README.md).
+Optional video setup first calls [`xtts_api/install_comfyui_portable.cmd`](xtts_api/install_comfyui_portable.cmd) to install the missing [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) runtime from release tag [`comfyui-portable-v1`](https://github.com/valpe13/audio/releases/tag/comfyui-portable-v1), then calls the existing AnimateDiff/HotshotXL helpers with [`--yes`](README.md) where they support noninteractive operation. It never fails the base XTTS install if optional ComfyUI/video downloads fail. [`xtts_api/install_svd_xt_model.cmd`](xtts_api/install_svd_xt_model.cmd) remains intentionally interactive because Hugging Face may require accepting model terms or setting [`HF_TOKEN`](README.md).
+
+The ComfyUI portable installer is conservative: if [`ComfyUI_windows_portable/ComfyUI/main.py`](ComfyUI_windows_portable/ComfyUI/main.py) already exists, it exits successfully without changing the folder. If [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) exists but is missing required files, it refuses to overwrite by default; [`--force`](README.md) renames the existing folder to a timestamped backup before installing instead of deleting it. Runtime archives are downloaded into [`.installer_cache/comfyui-portable/`](.installer_cache/comfyui-portable/) and are not committed.
 
 Use [`--skip-assets`](README.md) only when you want to update source files without downloading/rechecking XTTS release assets or running [`install_models.cmd`](install_models.cmd):
 
@@ -80,7 +82,16 @@ If you specifically need ComfyUI later, install or unpack it separately into [`C
 - Required XTTS bootstrap assets come from GitHub Release [`xtts-assets-v1`](https://github.com/valpe13/audio/releases/tag/xtts-assets-v1) and are SHA256-verified before extraction.
 - [`install_models.cmd`](install_models.cmd) may download Coqui XTTS v2 into the per-user Coqui cache under [`%LOCALAPPDATA%\tts`](README.md) and may install Python packages from PyPI/PyTorch indexes into [`xtts_api/.venv/`](xtts_api/.venv/).
 - Optional video helpers download large models/nodes from Hugging Face or upstream Git repositories as documented by each helper; these are local runtime assets, not repository source.
+- Optional ComfyUI portable runtime assets are described by [`xtts_api/comfyui_portable_manifest.json`](xtts_api/comfyui_portable_manifest.json) and published, after approval, as split GitHub Release assets under tag [`comfyui-portable-v1`](https://github.com/valpe13/audio/releases/tag/comfyui-portable-v1). The packaged runtime excludes models, inputs, outputs, temp/cache folders, logs, generated media, user assets, Hugging Face/torch caches, and bytecode.
 - Secrets, API keys, local configs, generated media, uploads, project outputs, virtual environments, portable ComfyUI, and model files are intentionally ignored by [`.gitignore`](.gitignore).
+
+ComfyUI portable release packaging is local-only and does not upload anything:
+
+```bat
+python xtts_api\package_comfyui_portable.py --write-manifest --force
+```
+
+Review the generated archive, checksums, manifest copy, and license/redistribution terms before running the printed [`gh release create`](README.md) or [`gh release upload`](README.md) commands. Do not upload or mark [`redistribution_status`](xtts_api/comfyui_portable_manifest.json) as approved until ComfyUI, embedded dependencies, custom nodes, and bundled binary licenses permit redistribution through this project's GitHub Releases.
 
 GitHub publication checklist before pushing a release:
 

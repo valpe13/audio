@@ -23,12 +23,25 @@ if not exist "ComfyUI_windows_portable\ComfyUI\main.py" (
 set "OPTIONAL_FAILURES=0"
 
 echo.
+echo Running optional installer: ComfyUI portable runtime from GitHub Releases
+call xtts_api\install_comfyui_portable.cmd --yes
+if errorlevel 1 (
+  echo WARNING: ComfyUI portable runtime installer could not complete.
+  echo          This is non-fatal; existing local ComfyUI folders are never overwritten by default.
+  echo          If redistribution was approved, update xtts_api\comfyui_portable_manifest.json first.
+  echo          Model/custom-node installers will continue below where possible.
+  set /a OPTIONAL_FAILURES+=1
+) else (
+  echo OK: ComfyUI portable runtime is present or was installed
+)
+
+echo.
 echo Running optional installer: manifest-based image/video models from GitHub Releases
-call xtts_api\install_image_video_models.cmd --yes --allow-pending
+call xtts_api\install_image_video_models.cmd --yes
 if errorlevel 1 (
   echo WARNING: Manifest model installer could not install all resources.
-  echo          This is non-fatal; GitHub Release assets may not exist yet or licensing may still be pending.
-  echo          Legacy/fallback installers will continue below.
+  echo          This is non-fatal; GitHub Release assets may be temporarily unavailable.
+  echo          Custom-node installers will continue below.
   set /a OPTIONAL_FAILURES+=1
 ) else (
   echo OK: Manifest image/video model installer finished
@@ -63,13 +76,6 @@ if errorlevel 1 (
 ) else (
   echo OK: HotshotXL / SDXL AnimateDiff resources
 )
-
-echo.
-echo SVD-XT optional checkpoint:
-echo   xtts_api\install_svd_xt_model.cmd is intentionally interactive because
-echo   Hugging Face may require accepting model terms or setting HF_TOKEN.
-echo   To install it, run: xtts_api\install_svd_xt_model.cmd
-echo.
 
 if "%OPTIONAL_FAILURES%"=="0" (
   echo Optional video resource installer finished without required-helper errors.

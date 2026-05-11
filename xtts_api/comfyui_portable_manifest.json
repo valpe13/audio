@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "name": "ComfyUI Windows portable runtime",
+  "repo": "valpe13/audio",
+  "release_tag": "comfyui-portable-v1",
+  "target_dir": "ComfyUI_windows_portable",
+  "archive_base_name": "comfyui_windows_portable_v1.zip",
+  "sha256": "1af738f3f6f765f1eab1660181c6c4d18da769a5440cf4243a7daaf604aecde1",
+  "size_bytes": 2415627931,
+  "redistribution_status": "approved",
+  "required_files": [
+    "ComfyUI/main.py",
+    "run_nvidia_gpu.bat",
+    "run_cpu.bat"
+  ],
+  "optional_files": [
+    "ffmpeg.exe",
+    "python_embeded/python.exe"
+  ],
+  "parts": [
+    {
+      "name": "comfyui_windows_portable_v1.zip.part01",
+      "url": "https://github.com/valpe13/audio/releases/download/comfyui-portable-v1/comfyui_windows_portable_v1.zip.part01",
+      "size_bytes": 1887436800,
+      "sha256": "238b093a484e985a6d0d768e8e4a14e0bfb237022e8cf71c62ad0ca71dfc20bc"
+    },
+    {
+      "name": "comfyui_windows_portable_v1.zip.part02",
+      "url": "https://github.com/valpe13/audio/releases/download/comfyui-portable-v1/comfyui_windows_portable_v1.zip.part02",
+      "size_bytes": 528191131,
+      "sha256": "f0007dac59ed61aee2c33565e4070b3227d939a5aa795a1fb0e947df7edd359e"
+    }
+  ],
+  "exclusions": [
+    "ComfyUI/models/**",
+    "ComfyUI/output/**",
+    "ComfyUI/input/**",
+    "ComfyUI/temp/**",
+    "ComfyUI/user/**",
+    "ComfyUI/custom_nodes/**/.git/**",
+    "ComfyUI/custom_nodes/**/__pycache__/**",
+    "ComfyUI/custom_nodes/**/*.pyc",
+    "ComfyUI/**/__pycache__/**",
+    "ComfyUI/**/*.pyc",
+    "ComfyUI/**/*.log",
+    "ComfyUI/**/*.tmp",
+    "ComfyUI/**/*.temp",
+    "python_embeded/Lib/site-packages/torch_extensions/**",
+    "python_embeded/Lib/site-packages/**/__pycache__/**",
+    "python_embeded/**/*.pyc",
+    ".cache/**",
+    "cache/**",
+    "hf_cache/**",
+    "huggingface/**",
+    "torch_cache/**",
+    "*.mp4",
+    "*.mov",
+    "*.avi",
+    "*.mkv",
+    "*.webm",
+    "*.wav",
+    "*.mp3",
+    "*.flac",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.webp"
+  ],
+  "notes": [
+    "Sanitized ComfyUI portable runtime archive is approved by the project owner for automatic installer use without license confirmation gates.",
+    "Release assets exclude models, user data, outputs, inputs, temp folders, caches, generated media, logs, and bytecode."
+  ]
+}

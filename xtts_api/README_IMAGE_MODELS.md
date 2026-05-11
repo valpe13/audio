@@ -6,6 +6,37 @@ This folder contains safe installer wrappers for adding SDXL checkpoint files to
 
 Image/video model binaries are distributed through GitHub Release assets, not through Git commits. The manifest is stored at `xtts_api/image_video_models_manifest.json` and currently points to release tag `image-video-models-v1` in repository `valpe13/audio`.
 
+The optional ComfyUI portable runtime is managed separately from model files. Its manifest is `xtts_api/comfyui_portable_manifest.json`, release tag is `comfyui-portable-v1`, and target folder is `ComfyUI_windows_portable`. Run it before model/custom-node installers when a machine does not already have ComfyUI portable:
+
+```cmd
+xtts_api\install_comfyui_portable.cmd --yes --allow-pending
+```
+
+Dry-run without downloading or changing an existing local runtime:
+
+```cmd
+xtts_api\install_comfyui_portable.cmd --dry-run --yes --allow-pending
+```
+
+Runtime installer behavior:
+
+- validates `ComfyUI_windows_portable\ComfyUI\main.py`, `run_nvidia_gpu.bat`, and `run_cpu.bat`;
+- exits successfully without changes when an existing runtime is valid;
+- refuses to overwrite an invalid existing `ComfyUI_windows_portable` unless `--force` is used;
+- with `--force`, renames the existing folder to a timestamped backup instead of deleting it;
+- downloads split release parts into `.installer_cache\comfyui-portable`, reassembles the zip, verifies SHA256 when present, extracts to a temporary folder, validates, then moves into place;
+- keeps ComfyUI runtime binaries out of Git commits.
+
+The current ComfyUI portable manifest is intentionally marked `pending_review`. Use `--allow-pending` only for local testing before release approval. Do not upload runtime assets or change the status to `approved` until ComfyUI, embedded Python/packages, custom nodes, and bundled binary licenses allow redistribution.
+
+Package a sanitized local archive without upload:
+
+```cmd
+python xtts_api\package_comfyui_portable.py --write-manifest --force
+```
+
+The packaging script excludes model folders, input/output/temp/user/cache folders, logs, bytecode, generated/user media, Hugging Face caches, torch caches, and model binaries such as `.safetensors`, `.ckpt`, `.pth`, `.pt`, `.onnx`, `.bin`, and `.gguf`. It writes local artifacts under `release_assets\comfyui-portable-v1`, computes size/SHA256 values, splits below the configured GitHub asset limit, writes a generated manifest copy when requested, and prints `gh release create/upload` commands without running them.
+
 Run from the project root:
 
 ```cmd
@@ -192,6 +223,10 @@ Limitations and VRAM expectations:
 - `install_animatediff_sd15_checkpoint.py` — Python helper that validates a direct SD1.5 checkpoint URL, asks for manual confirmation unless `--yes` is used, downloads to the ComfyUI checkpoints folder, and never overwrites existing checkpoint files.
 - `install_hotshotxl_deps.cmd` — Windows launcher for installing one SDXL/HotshotXL motion module for the guarded `generated_hotshotxl` backend.
 - `install_hotshotxl_deps.py` — Python helper that validates ComfyUI portable, verifies AnimateDiff-Evolved and VideoHelperSuite, downloads a motion model into `ComfyUI_windows_portable/ComfyUI/models/animatediff_models`, and never overwrites existing files.
+- `install_comfyui_portable.cmd` — Windows launcher for installing a missing ComfyUI portable runtime from split GitHub Release assets.
+- `install_comfyui_portable.py` — manifest-driven runtime installer that validates an existing portable folder, downloads/reassembles/verifies split archives, and avoids overwriting user installs.
+- `package_comfyui_portable.py` — local-only sanitized runtime packager/splitter that prints upload commands but never uploads assets.
+- `comfyui_portable_manifest.json` — release metadata, required-file validation list, split-asset URLs, exclusions, checksums, and redistribution review status for the portable runtime.
 
 ## Target folder
 

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "release_tag": "image-video-models-v1",
   "repo": "valpe13/audio",
-  "notes": "Model binaries are distributed as GitHub Release assets, never as Git repository commits. Redistribution status remains pending_review until each upstream license/terms review is completed.",
+  "notes": "Model binaries are distributed as GitHub Release assets, never as Git repository commits. Redistribution was approved by the project owner for automatic installer use without license confirmation gates.",
   "models": [
     {
       "name": "RealVisXL V5.0 FP16 SDXL checkpoint",
@@ -20,7 +20,7 @@
       ],
       "original_source_url": "",
       "license_url": "",
-      "redistribution_status": "pending_review"
+      "redistribution_status": "approved"
     },
     {
       "name": "Stable Video Diffusion XT 1.1 checkpoint",
@@ -37,7 +37,7 @@
       ],
       "original_source_url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt-1-1/resolve/main/svd_xt_1_1.safetensors",
       "license_url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt-1-1",
-      "redistribution_status": "pending_review"
+      "redistribution_status": "approved"
     },
     {
       "name": "DreamShaper 8 pruned SD1.5 checkpoint",
@@ -49,7 +49,7 @@
       "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/DreamShaper_8_pruned.safetensors",
       "original_source_url": "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors",
       "license_url": "https://huggingface.co/Lykon/DreamShaper",
-      "redistribution_status": "pending_review"
+      "redistribution_status": "approved"
     },
     {
       "name": "AnimateDiff SD1.5 motion module v2",
@@ -61,7 +61,7 @@
       "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/mm_sd_v15_v2.ckpt",
       "original_source_url": "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd_v15_v2.ckpt",
       "license_url": "https://huggingface.co/guoyww/animatediff",
-      "redistribution_status": "pending_review"
+      "redistribution_status": "approved"
     },
     {
       "name": "HotshotXL temporal layers SDXL motion model",
@@ -73,7 +73,7 @@
       "github_release_url": "https://github.com/valpe13/audio/releases/download/image-video-models-v1/hsxl_temporal_layers.safetensors",
       "original_source_url": "https://huggingface.co/hotshotco/Hotshot-XL/resolve/main/hsxl_temporal_layers.safetensors",
       "license_url": "https://huggingface.co/hotshotco/Hotshot-XL",
-      "redistribution_status": "pending_review"
+      "redistribution_status": "approved"
     }
   ]
 }
