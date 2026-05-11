@@ -4,6 +4,7 @@ cd /d "%~dp0"
 
 set "PYTHONUTF8=1"
 set "COQUI_TOS_AGREED=1"
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
 set "XTTS_VENV=xtts_api\.venv"
 set "XTTS_PY=%XTTS_VENV%\Scripts\python.exe"
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
@@ -36,8 +37,7 @@ if not exist "%XTTS_PY%" (
 )
 
 echo.
-echo Upgrading pip tooling ...
-"%XTTS_PY%" -m pip install --upgrade pip wheel "setuptools<81"
+call :bootstrap_pip_tooling
 if errorlevel 1 exit /b 1
 
 echo.
@@ -99,6 +99,55 @@ if /i not "%~1"=="--no-pause" pause
 endlocal
 exit /b 0
 
+:bootstrap_pip_tooling
+echo Bootstrapping pip tooling ...
+"%XTTS_PY%" -m ensurepip --upgrade >nul 2>nul
+if errorlevel 1 (
+  echo WARNING: ensurepip could not upgrade bundled pip. Continuing with the venv pip if usable.
+)
+
+"%XTTS_PY%" -m pip --version >nul 2>nul
+if errorlevel 1 (
+  echo ERROR: pip is not usable inside %XTTS_VENV%.
+  echo Recreate the virtual environment or reinstall Python 3.10 with pip enabled.
+  exit /b 1
+)
+
+echo Upgrading pip, wheel, and setuptools with network retries ...
+"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 --upgrade pip wheel "setuptools<81"
+if not errorlevel 1 (
+  echo pip tooling is up to date.
+  exit /b 0
+)
+
+echo WARNING: pip tooling upgrade failed. This is often a transient PyPI/network/index problem.
+echo WARNING: Retrying wheel and setuptools bootstrap without requiring a pip self-upgrade ...
+"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 --upgrade wheel "setuptools<81"
+if not errorlevel 1 (
+  echo wheel and setuptools are available; continuing with existing pip.
+  exit /b 0
+)
+
+echo WARNING: Retry failed. Checking whether existing pip tooling is already usable ...
+"%XTTS_PY%" -c "import pip, setuptools, wheel" >nul 2>nul
+if not errorlevel 1 (
+  echo WARNING: Existing pip, setuptools, and wheel are importable. Continuing despite the failed upgrade.
+  echo WARNING: If later dependency installation fails, rerun this installer when PyPI/network access is stable.
+  exit /b 0
+)
+
+"%XTTS_PY%" -c "import pip, setuptools" >nul 2>nul
+if not errorlevel 1 (
+  echo WARNING: Existing pip and setuptools are importable, but wheel is missing or unusable.
+  echo WARNING: Continuing because wheel is not always required for prebuilt dependency installs.
+  echo WARNING: If a later package must build from source, rerun this installer when PyPI/network access is stable.
+  exit /b 0
+)
+
+echo ERROR: pip/setuptools are not usable and network bootstrap failed.
+echo ERROR: Check internet access to https://pypi.org/simple/ and rerun this installer.
+exit /b 1
+
 :ensure_cpp_build_tools
 echo.
 echo Checking Microsoft C++ Build Tools, required when pip builds Coqui TTS from source ...
@@ -152,10 +201,10 @@ if defined VSINSTALL if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
   echo Running pip inside Visual Studio compiler environment ...
   call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
   if errorlevel 1 exit /b 1
-  "%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  "%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
   exit /b %ERRORLEVEL%
 )
 
 echo Visual Studio developer environment was not found; trying normal pip install ...
-"%XTTS_PY%" -m pip install -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 exit /b %ERRORLEVEL%
