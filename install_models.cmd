@@ -9,6 +9,7 @@ set "XTTS_VENV=xtts_api\.venv"
 set "XTTS_PY=%XTTS_VENV%\Scripts\python.exe"
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
 set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
+set "XTTS_WHEELHOUSE=xtts_api\wheelhouse"
 
 echo XTTS installer / model preloader
 echo =================================
@@ -113,40 +114,54 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Upgrading pip, wheel, and setuptools with network retries ...
-"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 --upgrade pip wheel "setuptools<81"
-if not errorlevel 1 (
-  echo pip tooling is up to date.
+echo pip is usable inside %XTTS_VENV%.
+echo Checking optional pip build helpers ...
+"%XTTS_PY%" -c "import setuptools" >nul 2>nul
+if errorlevel 1 (
+  echo WARNING: setuptools is not currently importable; continuing because pip itself is usable.
+) else (
+  echo setuptools is available.
+)
+
+"%XTTS_PY%" -c "import wheel" >nul 2>nul
+if errorlevel 1 (
+  echo WARNING: wheel is not currently importable; continuing because many packages provide prebuilt wheels.
+) else (
+  echo wheel is available.
+)
+
+if exist "%XTTS_WHEELHOUSE%\*.whl" (
+  echo Found local wheelhouse: %XTTS_WHEELHOUSE%
+  echo Installing optional pip helpers from local wheelhouse if available ...
+  "%XTTS_PY%" -m pip install --disable-pip-version-check --no-index --find-links "%XTTS_WHEELHOUSE%" --upgrade wheel "setuptools<81"
+  if errorlevel 1 (
+    echo WARNING: Local wheelhouse did not contain usable wheel/setuptools packages. Continuing with existing pip.
+  ) else (
+    echo Optional pip helpers were installed from local wheelhouse.
+  )
   exit /b 0
 )
 
-echo WARNING: pip tooling upgrade failed. This is often a transient PyPI/network/index problem.
-echo WARNING: Retrying wheel and setuptools bootstrap without requiring a pip self-upgrade ...
-"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 --upgrade wheel "setuptools<81"
-if not errorlevel 1 (
-  echo wheel and setuptools are available; continuing with existing pip.
+echo No local wheelhouse found at %XTTS_WHEELHOUSE%; skipping offline wheel/setuptools bootstrap.
+
+if /i "%XTTS_SKIP_PIP_TOOLING_UPGRADE%"=="1" (
+  echo Skipping optional pip helper upgrade because XTTS_SKIP_PIP_TOOLING_UPGRADE=1.
+  echo If dependency installation fails, check PyPI access or set PIP_INDEX_URL to a reachable mirror.
   exit /b 0
 )
 
-echo WARNING: Retry failed. Checking whether existing pip tooling is already usable ...
-"%XTTS_PY%" -c "import pip, setuptools, wheel" >nul 2>nul
-if not errorlevel 1 (
-  echo WARNING: Existing pip, setuptools, and wheel are importable. Continuing despite the failed upgrade.
-  echo WARNING: If later dependency installation fails, rerun this installer when PyPI/network access is stable.
+echo Attempting one short optional wheel/setuptools refresh from the configured pip index ...
+echo If this network step fails, the installer will still continue because pip is usable.
+"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 1 --timeout 15 --upgrade wheel "setuptools<81"
+if errorlevel 1 (
+  echo WARNING: Optional wheel/setuptools refresh failed, likely due to PyPI/network/index access.
+  echo WARNING: Continuing to XTTS requirements install with usable pip.
+  echo WARNING: If dependency install fails, retry when internet is stable or set PIP_INDEX_URL to a reachable mirror.
   exit /b 0
 )
 
-"%XTTS_PY%" -c "import pip, setuptools" >nul 2>nul
-if not errorlevel 1 (
-  echo WARNING: Existing pip and setuptools are importable, but wheel is missing or unusable.
-  echo WARNING: Continuing because wheel is not always required for prebuilt dependency installs.
-  echo WARNING: If a later package must build from source, rerun this installer when PyPI/network access is stable.
-  exit /b 0
-)
-
-echo ERROR: pip/setuptools are not usable and network bootstrap failed.
-echo ERROR: Check internet access to https://pypi.org/simple/ and rerun this installer.
-exit /b 1
+echo Optional wheel/setuptools refresh completed.
+exit /b 0
 
 :ensure_cpp_build_tools
 echo.
@@ -202,9 +217,19 @@ if defined VSINSTALL if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
   call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
   if errorlevel 1 exit /b 1
   "%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
-  exit /b %ERRORLEVEL%
+  if errorlevel 1 goto pip_requirements_failed
+  exit /b 0
 )
 
 echo Visual Studio developer environment was not found; trying normal pip install ...
 "%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
-exit /b %ERRORLEVEL%
+if errorlevel 1 goto pip_requirements_failed
+exit /b 0
+
+:pip_requirements_failed
+echo ERROR: XTTS dependency installation failed.
+echo ERROR: pip itself is usable, but required packages could not be installed from the configured indexes.
+echo ERROR: This usually means PyPI/network access is unavailable, the pip cache is incomplete, or a package build failed.
+echo ERROR: Retry when internet is stable, or set PIP_INDEX_URL to a reachable mirror before running this installer.
+echo ERROR: Example: set PIP_INDEX_URL=https://pypi.org/simple
+exit /b 1
