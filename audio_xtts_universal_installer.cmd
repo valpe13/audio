@@ -109,6 +109,7 @@ echo Если git pull недоступен или пропущен из-за л
 echo проектные файлы синхронизируются из GitHub ZIP с сохранением пользовательских путей.
 echo Базовый ComfyUI portable проверяется и ремонтируется автоматически; сломанная
 echo папка ComfyUI_windows_portable переименовывается в backup установщиком ComfyUI.
+echo Проверка включает ядро ComfyUI: ComfyUI\comfy\ldm\models\autoencoder.py.
 echo По умолчанию установщик также скачивает image/video модели и доп. ресурсы ComfyUI.
 echo Повторный запуск безопасен: существующие модели не перезаписываются без необходимости.
 exit /b 0
@@ -266,6 +267,7 @@ exit /b 0
 :install_base_comfyui_runtime
 echo.
 echo Проверяю/чиню базовый ComfyUI portable для генерации изображений...
+echo Если отсутствует ComfyUI\comfy\ldm\models\autoencoder.py, это сломанное ядро ComfyUI; папка будет переустановлена через backup.
 if not exist "xtts_api\install_comfyui_portable.cmd" (
   echo ОШИБКА: Не найден xtts_api\install_comfyui_portable.cmd.
   echo Без него нельзя автоматически установить или починить ComfyUI portable.

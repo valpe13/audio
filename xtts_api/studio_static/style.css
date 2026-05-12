@@ -215,6 +215,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineRuler { position: relative; height: 20px; border-bottom: 1px solid #30384d; }
 .groupMediaTimelineRuler span { position: absolute; top: 0; transform: translateX(-50%); color: #ffe66f; font-family: Consolas, monospace; font-size: .72rem; }
 .groupMediaTimelineLane { position: relative; min-height: 76px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #0f131d 0 7.5%, #182338 7.7% 7.9%); }
+.groupMediaPlayheadSlider { width: 100%; accent-color: #ffe66f; }
+.groupMediaPlayhead { position: absolute; top: 0; bottom: 0; width: 2px; z-index: 4; background: #ffe66f; box-shadow: 0 0 12px rgba(255,230,111,.7); pointer-events: none; }
 .groupMediaTimelineBlock { position: absolute; top: 10px; bottom: 10px; min-width: 3.5rem; display: grid; align-content: center; gap: .08rem; padding: .35rem .55rem; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: linear-gradient(135deg, #2d6b8c, #6d8cff); color: #fff; text-align: left; overflow: hidden; }
 .groupMediaTimelineBlock.video { background: linear-gradient(135deg, #ff7a45, #8b5cf6); }
 .groupMediaTimelineBlock.selected { box-shadow: 0 0 0 3px rgba(255,230,111,.32), 0 0 18px rgba(255,230,111,.2); filter: brightness(1.12); }

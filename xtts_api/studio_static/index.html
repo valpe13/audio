@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-group-media-regressions-v2" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-urgent-backend-grok-timeline-comfyui" />
   </head>
   <body>
     <header>
@@ -179,7 +179,7 @@
               <div class="imageSimpleHead">
                 <div>
                   <h3>Картинки RealVisXL / Grok</h3>
-                  <p>Choose the image provider below. Shared quality, orientation, and style stay here.</p>
+                  <p>Выберите провайдер картинки ниже. Общие качество, ориентация и стиль применяются к ComfyUI и как подсказка к Grok.</p>
                 </div>
                 <span class="realvisxlBadge">RealVisXL</span>
               </div>
@@ -241,8 +241,8 @@
                       <option value="disabled">disabled</option>
                     </select>
                   </label>
-                  <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
-                  <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
+                  <label>Ширина картинки / подсказка Grok <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
+                  <label>Высота картинки / подсказка Grok <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
                 </div>
                 <p id="imageFluxWorkflowNote" class="imageFluxWorkflowNote" hidden>FLUX generated workflow is not supported yet. Use template mode until the next implementation stage.</p>
               </details>
@@ -270,12 +270,13 @@
                 </div>
               </details>
               <details class="settingsSubsection xaiKeySettings">
-                <summary>Grok / xAI image and AI helpers</summary>
+                <summary>Grok / xAI · картинки и AI-помощники</summary>
+                <p class="videoI2vGrokEnableHint">Grok-картинки используют модель из поля ниже. Если xAI вернул “model does not exist” или “no access”, укажите модель, доступную вашему аккаунту/API; безопасное значение по умолчанию: grok-2-image-1212.</p>
                 <div class="grid two imageSettingsGrid">
                   <label>Grok / xAI API key
                     <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
                   </label>
-                  <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
+                  <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Модель Grok Image <input id="imageGrokModel" type="text" placeholder="grok-2-image-1212" /></label>
                   <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
                   <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
                 </div>
@@ -288,7 +289,7 @@
               <details class="settingsSubsection videoI2vSettings">
                 <summary>Video backend and quality</summary>
                 <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
-                <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
+                <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok видео модель автоматически: grok-imagine-video. Размер Grok-видео задаётся через Resolution/Aspect ниже; auto aspect follows the source image orientation, not the image pixel Width/Height.</p>
                 <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
                 <label class="qualitySliderLabel">Video quality
                   <input id="videoI2vQualityPreset" type="range" min="0" max="2" step="1" value="1" />

@@ -78,20 +78,23 @@ window.XTTSStudio = window.XTTSStudio || {};
     host.innerHTML = `
       <div class="groupMediaTimelineHead">
         <div>
-          <strong>Group media timeline</strong>
-          <small>0 → ${escapeHtml(formatSeconds(duration))}. Select a clip, nudge/resize, then Save group.</small>
+          <strong>Таймлайн медиа группы</strong>
+          <small>0 → ${escapeHtml(formatSeconds(duration))}. Выберите клип, сдвиньте/измените длительность, затем сохраните группу.</small>
         </div>
         <div class="groupMediaTimelineButtons">
+          <button type="button" class="secondary groupMediaPreviewPlay">▶ Играть</button>
+          <button type="button" class="secondary groupMediaPreviewStop">■ Стоп</button>
           <button type="button" class="secondary groupMediaNudgeLeft">← 0.5s</button>
           <button type="button" class="secondary groupMediaNudgeRight">0.5s →</button>
-          <button type="button" class="secondary groupMediaShorten">− duration</button>
-          <button type="button" class="secondary groupMediaLengthen">+ duration</button>
+          <button type="button" class="secondary groupMediaShorten">− длит.</button>
+          <button type="button" class="secondary groupMediaLengthen">+ длит.</button>
         </div>
       </div>
       <div class="groupMediaTimelineRuler">${rulerTicks.join("")}</div>
-      <div class="groupMediaTimelineLane" tabindex="0">${blocks || `<div class="groupMediaTimelineEmpty">No scheduled clips yet. Drag media here to fill a free gap; library-only media stays below.</div>`}</div>
+      <input type="range" class="groupMediaPlayheadSlider" min="0" max="${duration.toFixed(3)}" step="0.05" value="0" aria-label="Позиция предпросмотра медиа группы" />
+      <div class="groupMediaTimelineLane" tabindex="0"><i class="groupMediaPlayhead" style="left:0%"></i>${blocks || `<div class="groupMediaTimelineEmpty">На таймлайне пока нет клипов. Перетащите медиа сюда; элементы библиотеки остаются ниже.</div>`}</div>
       <div class="groupMediaTimelineInspector">
-        <span class="groupMediaTimelineSelection">Select a timeline clip or edit rows below.</span>
+        <span class="groupMediaTimelineSelection">Выберите клип таймлайна или отредактируйте строки ниже.</span>
       </div>
     `;
   }
@@ -103,6 +106,41 @@ window.XTTSStudio = window.XTTSStudio || {};
     const rows = () => [...card.querySelectorAll(".groupMediaItem")];
     const timelineItems = () => namespace.GroupMediaUtils?.scheduledItems?.(normalizedItemsFromRows(card, duration)) || normalizedItemsFromRows(card, duration).filter((item) => item.scheduled !== false);
     const scheduledRows = () => rows().filter((row) => row.querySelector(`[data-media-field='scheduled']`)?.checked !== false);
+    const activeItemAt = (timeSec) => {
+      const time = clamp(timeSec, 0, duration);
+      return timelineItems().find((item) => {
+        const start = clamp(item.start_offset_sec, 0, duration);
+        const end = Math.min(duration, start + itemDuration(item, duration));
+        return time >= start && time < end;
+      }) || null;
+    };
+    const setPlayhead = (timeSec) => {
+      const time = clamp(timeSec, 0, duration);
+      const slider = host.querySelector(".groupMediaPlayheadSlider");
+      const playhead = host.querySelector(".groupMediaPlayhead");
+      if (slider) slider.value = String(time);
+      if (playhead) playhead.style.left = `${(time / Math.max(0.25, duration)) * 100}%`;
+      const item = activeItemAt(time);
+      if (item) callbacks.onPreviewTime?.(item, time);
+      return time;
+    };
+    const stopPlayback = () => {
+      if (namespace.GroupMediaTimeline?.previewTimer) window.clearInterval(namespace.GroupMediaTimeline.previewTimer);
+      namespace.GroupMediaTimeline.previewTimer = null;
+      callbacks.onPreviewStop?.();
+    };
+    const startPlayback = () => {
+      stopPlayback();
+      let startWall = Date.now();
+      let startTime = Number(host.querySelector(".groupMediaPlayheadSlider")?.value || 0);
+      if (startTime >= duration - 0.01) startTime = 0;
+      setPlayhead(startTime);
+      namespace.GroupMediaTimeline.previewTimer = window.setInterval(() => {
+        const next = startTime + (Date.now() - startWall) / 1000;
+        setPlayhead(next);
+        if (next >= duration) stopPlayback();
+      }, 120);
+    };
     const select = (index) => {
       selectedIndex = index;
       host.querySelectorAll(".groupMediaTimelineBlock").forEach((block) => block.classList.toggle("selected", Number(block.dataset.mediaIndex) === index));
@@ -111,7 +149,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       const item = timelineItems()[index];
       if (item) callbacks.onSelect?.(item);
       const selection = host.querySelector(".groupMediaTimelineSelection");
-      if (selection) selection.textContent = item ? `${item.label} · start ${item.start_offset_sec.toFixed(2)}s · duration ${Number(item.duration_sec || 0).toFixed(2)}s` : "Select a timeline clip or edit rows below.";
+      if (selection) selection.textContent = item ? `${item.label} · старт ${item.start_offset_sec.toFixed(2)}s · длительность ${Number(item.duration_sec || 0).toFixed(2)}s` : "Выберите клип таймлайна или отредактируйте строки ниже.";
     };
     const mutateSelected = (patch) => {
       const row = scheduledRows()[selectedIndex];
@@ -157,7 +195,11 @@ window.XTTSStudio = window.XTTSStudio || {};
         select(Number(block.dataset.mediaIndex));
         return;
       }
-      if (event.target.closest?.(".groupMediaNudgeLeft")) {
+      if (event.target.closest?.(".groupMediaPreviewPlay")) {
+        startPlayback();
+      } else if (event.target.closest?.(".groupMediaPreviewStop")) {
+        stopPlayback();
+      } else if (event.target.closest?.(".groupMediaNudgeLeft")) {
         const item = timelineItems()[selectedIndex];
         if (item) mutateSelected({ start_offset_sec: item.start_offset_sec - 0.5 });
       } else if (event.target.closest?.(".groupMediaNudgeRight")) {
@@ -182,7 +224,8 @@ window.XTTSStudio = window.XTTSStudio || {};
       });
       lane.addEventListener("drop", (event) => { event.preventDefault(); addDropped(event); });
     }
-    host.querySelector(".groupMediaTimelineButtons")?.insertAdjacentHTML("beforeend", `<button type="button" class="secondary deleteGroupMediaSelectedBtn">Delete selected</button>`);
+    host.querySelector(".groupMediaPlayheadSlider")?.addEventListener("input", (event) => { stopPlayback(); setPlayhead(event.target.value); });
+    host.querySelector(".groupMediaTimelineButtons")?.insertAdjacentHTML("beforeend", `<button type="button" class="secondary deleteGroupMediaSelectedBtn">Удалить выбранное</button>`);
     card.querySelectorAll(".groupMediaItem input, .groupMediaItem select").forEach((input) => {
       input.addEventListener("input", () => { rerender?.(); select(Math.min(selectedIndex, scheduledRows().length - 1)); });
       input.addEventListener("change", () => { rerender?.(); select(Math.min(selectedIndex, scheduledRows().length - 1)); });

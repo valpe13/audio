@@ -29,6 +29,13 @@ DEFAULT_MANIFEST = SCRIPT_DIR / "comfyui_portable_manifest.json"
 DEFAULT_CACHE_DIR = PROJECT_ROOT / ".installer_cache" / "comfyui-portable"
 APPROVED_STATUS = "approved"
 CHUNK_SIZE = 1024 * 1024
+CORE_REQUIRED_FILES = [
+    "ComfyUI/main.py",
+    "ComfyUI/comfy/sd.py",
+    "ComfyUI/comfy/ldm/models/autoencoder.py",
+    "ComfyUI/comfy/ldm/models/diffusion/ddpm.py",
+    "ComfyUI/comfy/ldm/modules/attention.py",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,7 +98,8 @@ def target_dir_from_manifest(manifest: dict[str, Any]) -> Path:
 
 def validate_required_files(root: Path, manifest: dict[str, Any]) -> list[str]:
     missing: list[str] = []
-    for item in manifest["required_files"]:
+    required = list(dict.fromkeys([str(item) for item in manifest["required_files"]] + CORE_REQUIRED_FILES))
+    for item in required:
         rel = safe_relative_path(str(item))
         if not (root / rel).is_file():
             missing.append(str(item).replace("/", "\\"))
@@ -120,6 +128,8 @@ def print_invalid_target_guidance(missing: list[str], force: bool) -> None:
     print("WARNING: Existing ComfyUI target is present but invalid/missing required files:")
     print(format_missing_required_files(missing))
     print(classify_missing_required_files(missing))
+    print("ОБНАРУЖЕНО ПОВРЕЖДЕНИЕ ЯДРА ComfyUI: отсутствуют файлы comfy/ldm/models.")
+    print("Установщик переустановит базовый ComfyUI portable из проверенного архива и сохранит старую папку как backup.")
     if not force:
         print()
         print("Repair action:")

@@ -7,6 +7,13 @@ import urllib.error
 import urllib.request
 
 
+def xai_access_error_hint(detail: str) -> str:
+    lowered = str(detail or "").lower()
+    if any(token in lowered for token in ("model", "not found", "does not exist", "not exist", "permission", "access", "unauthorized", "forbidden")):
+        return " Проверьте модель и доступ аккаунта xAI: укажите доступную модель в настройках Grok, например grok-2-image-1212, или модель, выданную вашей учётной записи/API."
+    return ""
+
+
 def xai_json_request(
     base_url: str,
     endpoint: str,
@@ -27,7 +34,7 @@ def xai_json_request(
             response_body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:700]
-        raise RuntimeError(f"{operation_label} failed with HTTP {exc.code}: {detail}") from exc
+        raise RuntimeError(f"{operation_label} failed with HTTP {exc.code}: {detail}{xai_access_error_hint(detail)}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"{operation_label} failed: {exc.reason}") from exc
     return json.loads(response_body) if response_body else {}

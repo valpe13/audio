@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-group-media-regressions-v2";
+﻿const FRONTEND_BUILD = "2026-05-12-urgent-backend-grok-timeline-comfyui";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -7,7 +7,7 @@ const VIDEO_I2V_BACKEND_LABELS = {
   generated_hotshotxl: "HotshotXL / AnimateDiff SDXL",
   generated_grok_imagine_video: "Grok Imagine Video",
 };
-const GROK_IMAGE_MODEL = "grok-2-image";
+const GROK_IMAGE_MODEL = "grok-2-image-1212";
 const IMAGE_QUALITY_PRESETS = {
   fast: { label: "Быстро", vertical: [832, 1216], horizontal: [1216, 832], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
   balanced: { label: "Баланс", vertical: [896, 1152], horizontal: [1152, 896], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
@@ -2558,6 +2558,21 @@ function selectGroupMediaPreview(card, item) {
     : `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.label || "Image preview")}" /><small>${escapeHtml(item.label || item.path || item.url || "Image")}</small>`;
 }
 
+function playGroupMediaPreview(card, item, localTimeSec = 0) {
+  selectGroupMediaPreview(card, item);
+  const video = card?.querySelector?.(".groupMediaPreview video");
+  if (!video) return;
+  const offset = Math.max(0, Number(localTimeSec || 0) - Number(item?.start_offset_sec || 0));
+  try { video.currentTime = Math.min(Math.max(0, offset), Math.max(0.1, video.duration || offset || 0.1)); } catch (_) { /* best-effort preview seek */ }
+  video.muted = true;
+  video.play?.().catch?.(() => {});
+}
+
+function stopGroupMediaPreview(card) {
+  const video = card?.querySelector?.(".groupMediaPreview video");
+  if (video) video.pause?.();
+}
+
 function renderGroupMediaThumbs(card, group) {
   const root = card?.querySelector?.(".groupMediaThumbSections");
   if (!root) return;
@@ -2773,6 +2788,8 @@ function renderGroupMediaTimeline(card, group) {
   renderFromRows();
   timeline.bind(host, card, group, renderFromRows, {
       onSelect: (item) => selectGroupMediaPreview(card, item),
+      onPreviewTime: (item, localTimeSec) => playGroupMediaPreview(card, item, localTimeSec),
+      onPreviewStop: () => stopGroupMediaPreview(card),
       onAdd: (item) => addGroupMediaRow(card, item, group.duration),
       onReject: (message) => setStatus(message),
       onChange: () => saveGroupPrompts(group.id, card),

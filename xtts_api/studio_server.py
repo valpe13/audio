@@ -34,9 +34,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 try:
+    from project_compat import extract_legacy_chunks
     from pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
     from xai_client import download_http_file, extract_xai_image_url, save_xai_image_url, xai_json_request
 except ImportError:  # pragma: no cover - package-style imports
+    from .project_compat import extract_legacy_chunks
     from .pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
     from .xai_client import download_http_file, extract_xai_image_url, save_xai_image_url, xai_json_request
 
@@ -56,7 +58,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-group-media-regressions-v2"
+STUDIO_BUILD = "2026-05-12-urgent-backend-grok-timeline-comfyui"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -66,7 +68,7 @@ DEFAULT_SILERO_API_URL = "http://127.0.0.1:7866"
 REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors"
 SVD_XT_CHECKPOINT = "svd_xt.safetensors"
 GROK_IMAGINE_VIDEO_MODEL = "grok-imagine-video"
-GROK_IMAGE_MODEL = "grok-2-image"
+GROK_IMAGE_MODEL = "grok-2-image-1212"
 ANIMATEDIFF_MOTION_MODEL = "mm_sd_v15_v2.ckpt"
 ANIMATEDIFF_SDXL_ENV_MODEL = "XTTS_ANIMATEDIFF_SDXL_MOTION_MODEL"
 ANIMATEDIFF_SDXL_MODEL_CANDIDATES = ("hsxl_temporal_layers.safetensors", "hotshotxl.safetensors", "mm_sdxl_v10_beta.ckpt", "mm_sdxl_v10_beta.safetensors")
