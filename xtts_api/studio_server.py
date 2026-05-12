@@ -58,7 +58,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-xai-image-quality-ui-fixes"
+STUDIO_BUILD = "2026-05-12-group-timeline-split-fixes"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -591,6 +591,10 @@ class GroupCreate(BaseModel):
     summary: str = ""
     chunk_ids: list[str] = Field(default_factory=list)
     insert_after_group_id: str | None = None
+
+
+class GroupSplitRequest(BaseModel):
+    chunks_per_group: int = Field(default=4, ge=1, le=100)
 
 
 class GroupMoveRequest(BaseModel):
@@ -6132,6 +6136,21 @@ def generate_ai_video_groups(payload: VideoGroupsAiRequest, project_id: str | No
     )
     set_status(project, "Grok AI grouping queued", True)
     return {"queued_task": task, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/split")
+def split_video_groups(payload: GroupSplitRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    chunks = ordered_project_chunks(project)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No chunks available for group split")
+    exclude_people = bool(project.get("settings", {}).get("image_exclude_people", DEFAULT_SETTINGS["image_exclude_people"]))
+    groups = fallback_video_groups(chunks, max_chunks_per_group=max(1, int(payload.chunks_per_group or 4)), exclude_people=exclude_people)
+    video = project.setdefault("arrangement", {}).setdefault("video", {})
+    video["groups"] = renumber_video_groups(groups)
+    normalize_arrangement(project)
+    set_status(project, f"Normal group split into {len(video['groups'])} group(s)")
+    return enrich_project(project)
 
 
 @app.patch("/api/project/groups/{group_id}")

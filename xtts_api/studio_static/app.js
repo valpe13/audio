@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-xai-image-quality-ui-fixes";
+﻿const FRONTEND_BUILD = "2026-05-12-group-timeline-split-fixes";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1232,6 +1232,10 @@ function setTimelineCursor(seconds, { fromPlayback = false } = {}) {
 
 function renderTimeline() {
   const timeline = $("timeline");
+  if (!timeline) {
+    renderTransportLanes();
+    return;
+  }
   timeline.innerHTML = "";
   const arrangement = buildTimelineArrangement();
   for (const part of arrangement) {
@@ -1280,6 +1284,12 @@ function renderTransportLanes() {
   const musicLane = $("musicTimelineLane");
   if (musicLane) {
     musicLane.innerHTML = "";
+    const masterClips = music.mode === "chain_loop" ? expandedChainClips(music.tracks) : music.tracks.map((track) => ({ track, start_time: Number(track.start_time || 0), duration: visualClipDuration(track), repeatIndex: 0 }));
+    masterClips.forEach((item, index) => {
+      const block = renderMusicClipBlock(item.track, timelinePx(item.start_time), Math.max(36, timelinePx(item.duration || state.preview.musicBufferDuration || 8)), music.mode === "loop", index, item.repeatIndex > 0, null);
+      block.classList.add("masterMusicClip");
+      musicLane.appendChild(block);
+    });
     renderEnvelope(musicLane, "music");
   }
   renderMusicLanesHost(music);
@@ -1439,6 +1449,77 @@ function sourceDurationForTrack(track) {
 
 function visualClipDuration(track) {
   return Math.max(0.05, clipDurationForTrack(track) || state.preview.musicBufferDuration || 8);
+}
+
+function groupChunkCompositionHtml(group) {
+  const chunkIds = Array.isArray(group.chunk_ids) ? group.chunk_ids : [];
+  const selected = new Set(chunkIds);
+  const chunkRows = getChunks()
+    .filter((chunk) => selected.has(chunk.id))
+    .map((chunk) => `<li><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 18))}</span></li>`)
+    .join("");
+  return `
+    <section class="groupDetailSection groupChunkSection">
+      <div class="groupSectionHead">
+        <div>
+          <h4>Состав группы · чанки</h4>
+          <p>Чанки, входящие в смысловую группу. Можно изменить состав и сохранить группу.</p>
+        </div>
+        <span class="groupSectionBadge">${chunkIds.length} шт.</span>
+      </div>
+      ${chunkRows ? `<ol class="groupChunkSummaryList">${chunkRows}</ol>` : `<p class="groupMediaEmpty">В группе нет чанков.</p>`}
+      <details class="groupChunkMembership">
+        <summary>Редактировать состав чанков</summary>
+        <div class="chunkPickGrid">${renderChunkMultiSelect(chunkIds)}</div>
+      </details>
+    </section>
+  `;
+}
+
+function groupPromptFieldsHtml(group, editableFields) {
+  return `
+    <section class="groupDetailSection groupPromptEditor">
+      <div class="groupSectionHead">
+        <div>
+          <h4>Промты группы</h4>
+          <p>Текстовые подсказки для картинки, видео и настроения сцены.</p>
+        </div>
+        <button type="button" class="generateGroupPromptBtn secondary">Сгенерировать промт группы</button>
+      </div>
+      <div class="groupPromptGrid">
+        ${editableFields.map(([key, label, type]) => {
+          const id = groupPromptInputId(group.id, key);
+          const value = group[key] ?? "";
+          return type === "textarea"
+            ? `<label>${escapeHtml(label)}<textarea id="${escapeHtml(id)}" data-group-field="${escapeHtml(key)}">${escapeHtml(value)}</textarea></label>`
+            : `<label>${escapeHtml(label)}<input id="${escapeHtml(id)}" type="text" data-group-field="${escapeHtml(key)}" value="${escapeHtml(value)}" /></label>`;
+        }).join("")}
+      </div>
+      ${group.source ? `<p class="groupPromptSource">Источник: ${escapeHtml(group.source)}</p>` : ""}
+    </section>
+  `;
+}
+
+function groupMediaSectionHtml(group, mediaItemsHtml) {
+  return `
+    <section class="groupDetailSection groupMediaEditor">
+      <div class="groupSectionHead">
+        <div>
+          <h4>Медиа и таймлайн группы</h4>
+          <p>Миниатюры, предпросмотр, дорожка медиа и локальные параметры показа.</p>
+        </div>
+        <button type="button" class="addGroupMediaBtn secondary">Добавить фото/видео</button>
+      </div>
+      <div class="grid two imageSettingsGrid">
+        <label>Макет <select data-group-setting="media_layout"><option value="sequence" ${(group.media_layout || "sequence") === "sequence" ? "selected" : ""}>последовательно</option><option value="overlay" ${group.media_layout === "overlay" ? "selected" : ""}>наложение</option><option value="background" ${group.media_layout === "background" ? "selected" : ""}>фон</option><option value="manual" ${group.media_layout === "manual" ? "selected" : ""}>вручную</option></select></label>
+        <label>Длительность по умолчанию, сек <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
+      </div>
+      <div class="groupMediaThumbSections"></div>
+      <div class="groupMediaPreview" aria-live="polite"><div class="groupMediaPreviewEmpty">Выберите миниатюру или блок на таймлайне.</div></div>
+      <div class="groupMediaTimelineHost"></div>
+      <div class="groupMediaList legacyHidden">${mediaItemsHtml || `<p class="groupMediaEmpty">Дополнительных медиа пока нет. Сгенерированные картинка/видео используются автоматически.</p>`}</div>
+    </section>
+  `;
 }
 
 function expandedChainClips(tracks) {
@@ -2618,17 +2699,17 @@ function renderGroupDetail(group, { force = false } = {}) {
   root.innerHTML = "";
   if (placeholder) placeholder.hidden = true;
   const editableFields = [
-    ["title", "Title", "input"],
-    ["summary", "Summary", "textarea"],
-    ["visual_prompt", "Visual prompt", "textarea"],
-    ["negative_prompt", "Negative prompt", "textarea"],
-    ["animation_positive_prompt", "Animation positive prompt", "textarea"],
-    ["animation_negative_prompt", "Animation negative prompt", "textarea"],
-    ["grok_video_prompt", "Grok video prompt", "textarea"],
-    ["mood", "Mood", "input"],
-    ["scene_type", "Scene type", "input"],
-    ["video_motion_intensity", "Video motion intensity", "input"],
-    ["video_loop_notes", "Video loop notes", "textarea"],
+    ["title", "Название", "input"],
+    ["summary", "Краткое описание", "textarea"],
+    ["visual_prompt", "Промт картинки", "textarea"],
+    ["negative_prompt", "Негативный промт", "textarea"],
+    ["animation_positive_prompt", "Позитивный промт анимации", "textarea"],
+    ["animation_negative_prompt", "Негативный промт анимации", "textarea"],
+    ["grok_video_prompt", "Промт Grok-видео", "textarea"],
+    ["mood", "Настроение", "input"],
+    ["scene_type", "Тип сцены", "input"],
+    ["video_motion_intensity", "Интенсивность движения", "input"],
+    ["video_loop_notes", "Заметки по бесшовному циклу", "textarea"],
   ];
   const mediaItems = normalizeGroupMediaItems(group);
   const mediaItemsHtml = mediaItems.map((item, index) => `
@@ -2644,49 +2725,6 @@ function renderGroupDetail(group, { force = false } = {}) {
       <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
     </div>
   `).join("");
-  const aiFieldsHtml = `
-    <details class="groupPromptEditor">
-      <summary class="groupPromptSummary"><span class="summaryTitle">Editable group prompts</span><span>click to expand/collapse</span></summary>
-      <div class="row between wrap">
-        <span></span>
-        <div class="row wrap">
-          <button type="button" class="moveGroupUpBtn secondary">Group ↑</button>
-          <button type="button" class="moveGroupDownBtn secondary">Group ↓</button>
-          <button type="button" class="deleteGroupBtn secondary">Delete group</button>
-          <button type="button" class="generateGroupPromptBtn secondary">Generate prompt for selected group</button>
-          <button type="button" class="saveGroupPromptsBtn secondary">Save group</button>
-        </div>
-      </div>
-      <details class="groupChunkMembership">
-        <summary>Chunks in this group (editable)</summary>
-        <div class="chunkPickGrid">${renderChunkMultiSelect(group.chunk_ids || [])}</div>
-      </details>
-      <div class="groupPromptGrid">
-        ${editableFields.map(([key, label, type]) => {
-          const id = groupPromptInputId(group.id, key);
-          const value = group[key] ?? "";
-          return type === "textarea"
-            ? `<label>${escapeHtml(label)}<textarea id="${escapeHtml(id)}" data-group-field="${escapeHtml(key)}">${escapeHtml(value)}</textarea></label>`
-            : `<label>${escapeHtml(label)}<input id="${escapeHtml(id)}" type="text" data-group-field="${escapeHtml(key)}" value="${escapeHtml(value)}" /></label>`;
-        }).join("")}
-      </div>
-      <section class="groupMediaEditor">
-        <div class="row between wrap">
-          <h4>Group media schedule</h4>
-          <button type="button" class="addGroupMediaBtn secondary">Add photo/video</button>
-        </div>
-        <div class="grid two imageSettingsGrid">
-          <label>Layout <select data-group-setting="media_layout"><option value="sequence" ${(group.media_layout || "sequence") === "sequence" ? "selected" : ""}>sequence</option><option value="overlay" ${group.media_layout === "overlay" ? "selected" : ""}>overlay</option><option value="background" ${group.media_layout === "background" ? "selected" : ""}>background</option><option value="manual" ${group.media_layout === "manual" ? "selected" : ""}>manual</option></select></label>
-          <label>Default duration, sec <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
-        </div>
-        <div class="groupMediaTimelineHost"></div>
-        <div class="groupMediaThumbSections"></div>
-        <div class="groupMediaPreview" aria-live="polite"><div class="groupMediaPreviewEmpty">Select an image/video thumbnail or timeline block.</div></div>
-        <div class="groupMediaList legacyHidden">${mediaItemsHtml || `<p class="groupMediaEmpty">No extra media yet. Generated image/video is still used automatically.</p>`}</div>
-      </section>
-      ${group.source ? `<p class="groupPromptSource">Source: ${escapeHtml(group.source)}</p>` : ""}
-    </details>
-  `;
   const image = group.image || {};
   const video = group.video || {};
   const imageStatus = groupImageStatus(group);
@@ -2721,15 +2759,23 @@ function renderGroupDetail(group, { force = false } = {}) {
         <h3>${escapeHtml(group.title)}</h3>
         <p>${escapeHtml(group.summary)}</p>
       </div>
-      <span class="groupDurationBadge">${escapeHtml(formatTime(group.duration))}</span>
+      <div class="groupHeaderActions">
+        <span class="groupDurationBadge">${escapeHtml(formatTime(group.duration))}</span>
+        <button type="button" class="saveGroupPromptsBtn secondary">Сохранить группу</button>
+        <button type="button" class="moveGroupUpBtn secondary">Группа ↑</button>
+        <button type="button" class="moveGroupDownBtn secondary">Группа ↓</button>
+        <button type="button" class="deleteGroupBtn secondary">Удалить группу</button>
+      </div>
     </div>
     <dl class="groupMetaGrid">
-      <div><dt>Start</dt><dd>${escapeHtml(formatTime(group.start))}</dd></div>
-      <div><dt>End</dt><dd>${escapeHtml(formatTime(group.end))}</dd></div>
-      <div><dt>Duration</dt><dd>${escapeHtml(formatTime(group.duration))}</dd></div>
-      <div><dt>Chunk ids</dt><dd>${escapeHtml(group.chunk_ids.join(", "))}</dd></div>
+      <div><dt>Старт</dt><dd>${escapeHtml(formatTime(group.start))}</dd></div>
+      <div><dt>Конец</dt><dd>${escapeHtml(formatTime(group.end))}</dd></div>
+      <div><dt>Длительность</dt><dd>${escapeHtml(formatTime(group.duration))}</dd></div>
+      <div><dt>ID чанков</dt><dd>${escapeHtml(group.chunk_ids.join(", "))}</dd></div>
     </dl>
-    ${aiFieldsHtml}
+    ${groupChunkCompositionHtml(group)}
+    ${groupPromptFieldsHtml(group, editableFields)}
+    ${groupMediaSectionHtml(group, mediaItemsHtml)}
     <section class="groupImagePanel image-${escapeHtml(imageStatus)}">
       <div class="groupImageHead">
         <div>
@@ -2780,6 +2826,35 @@ function renderGroupDetail(group, { force = false } = {}) {
   root.appendChild(card);
   renderGroupMediaThumbs(card, group);
   renderGroupMediaTimeline(card, group);
+}
+
+async function splitGroupsNormal() {
+  const button = $("splitGroupsBtn");
+  const input = $("groupSizeChunks");
+  const chunks = getChunks();
+  const groupSize = Math.max(1, Math.min(100, Number(input?.value || 4) || 4));
+  if (!chunks.length) {
+    setGroupAiStatus("Сначала разделите текст на чанки.", "error");
+    setStatus("Сначала разделите текст на чанки");
+    return;
+  }
+  try {
+    if (button) button.disabled = true;
+    setGroupAiStatus("Создаём обычные группы…", "busy");
+    state.project = await api(`/api/project/groups/split${activeProjectQuery()}`, { method: "POST", body: JSON.stringify({ chunks_per_group: groupSize }) });
+    const groups = videoGroups();
+    state.selectedGroupId = groups[0]?.id || "";
+    state.sidePanelMode = "groups";
+    state.screenMode = groups.length ? "group" : state.screenMode;
+    render();
+    setGroupAiStatus(`Обычная группировка готова: ${groups.length} групп.`, "success");
+    setStatus(`Создано групп: ${groups.length}`);
+  } catch (err) {
+    setGroupAiStatus(`Обычная группировка не удалась: ${err.message}`, "error");
+    setStatus(`Normal group split failed: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function renderGroupMediaTimeline(card, group) {
@@ -4117,6 +4192,8 @@ const queueAllImagesBtn = $("queueAllImagesBtn");
 if (queueAllImagesBtn) queueAllImagesBtn.onclick = () => enqueueAllGroupImages();
 const queueAllVideosBtn = $("queueAllVideosBtn");
 if (queueAllVideosBtn) queueAllVideosBtn.onclick = () => enqueueAllGroupVideos();
+const splitGroupsBtn = $("splitGroupsBtn");
+if (splitGroupsBtn) splitGroupsBtn.onclick = splitGroupsNormal;
 $("chunksSideTab").onclick = () => setSidePanelMode("chunks");
 $("groupsSideTab").onclick = () => setSidePanelMode("groups");
 $("refreshQueueBtn").onclick = refreshQueue;

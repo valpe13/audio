@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-xai-image-quality-ui-fixes" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-group-timeline-split-fixes" />
   </head>
   <body>
     <header>
@@ -85,15 +85,13 @@
           <div class="projectSettingsStack">
             <h2>2. Настройки</h2>
               <details class="settingsSection settingsGroup splitSettingsGroup">
-              <summary>Разделение текста · глобальные настройки чанков</summary>
-              <div class="grid two imageSettingsGrid">
-                <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
-                <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
-                <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
-              </div>
+              <summary>Разделение текста · чанки и группы</summary>
               <details class="settingsSubsection chunkStressSettings" open>
-                <summary>Глобальные настройки ударений и произношения чанков</summary>
+                <summary>Настройки чанков</summary>
                 <div class="grid two imageSettingsGrid">
+                  <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
+                  <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
+                  <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
                   <label>Стиль отметки ударения
                     <select id="ttsStressMarkStyle">
                       <option value="acute">acute: молоко́</option>
@@ -108,19 +106,28 @@
                     <input id="aiStressModel" type="text" placeholder="пусто = модель по умолчанию для AI-группировки" />
                   </label>
                   <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> После обычного разделения добавить русские ударения в уже созданные чанки через Grok</label>
-                  <label class="inlineCheck"><input id="aiGenerateGroupPromptsOnSplit" type="checkbox" checked /> Генерировать промпты групп при умном разделении</label>
+                </div>
+                <div class="row wrap settingsActions">
+                  <button id="splitBtn" type="button">Разделить на чанки</button>
                 </div>
               </details>
-              <div class="row wrap settingsActions">
-                <button id="splitBtn" type="button">Разделить на чанки</button>
-                <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
-                <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
-                <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
-                <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
-                <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
-              </div>
-              <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
-              <p class="imageResolvedSettings">Настройки разделения используются при первичном создании чанков. Группы можно создать автоматически через Grok или вручную, затем редактировать на экране «Группы». Для строгого контроля русских ударений используйте Silero backend и plus notation; XTTS/Fish-style neural backends may ignore acute marks. Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
+              <details class="settingsSubsection groupSplitSettings" open>
+                <summary>Настройки групп</summary>
+                <div class="grid two imageSettingsGrid">
+                  <label>Размер обычной группы, чанков <input id="groupSizeChunks" type="number" min="1" max="100" step="1" value="4" /></label>
+                  <label class="inlineCheck"><input id="aiGenerateGroupPromptsOnSplit" type="checkbox" checked /> Генерировать промпты групп при умном разделении</label>
+                </div>
+                <div class="row wrap settingsActions">
+                  <button id="splitGroupsBtn" type="button" class="secondary">Разделить на группы</button>
+                  <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">Разделить на группы AI</button>
+                  <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
+                  <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
+                  <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
+                  <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
+                </div>
+                <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
+              </details>
+              <p class="imageResolvedSettings">Настройки разделения используются при первичном создании чанков. Группы можно создать обычным последовательным разбиением по размеру, автоматически через Grok или вручную, затем редактировать на экране «Группы». Для строгого контроля русских ударений используйте Silero backend и plus notation; XTTS/Fish-style neural backends may ignore acute marks. Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
             </details>
 
             <details class="settingsSection settingsGroup audioSettingsGroup">
@@ -548,10 +555,12 @@
       <div id="timelineScroller" class="timelineScroller">
         <div id="timelineWorkspace" class="timelineWorkspace">
           <input id="timelineScrubber" class="timelineScrubber" type="range" min="0" max="0" step="0.001" value="0" />
-          <div id="timelineLaneWrap" class="timelineLaneWrap">
-            <div id="transportPlayhead" class="transportPlayhead" title="Drag voice lane to seek"></div>
-            <div class="laneLabel">Voice chunks / pauses</div>
-            <div id="voiceTimelineLane" class="timelineLane voiceLane"></div>
+            <div id="timelineLaneWrap" class="timelineLaneWrap">
+              <div id="transportPlayhead" class="transportPlayhead" title="Drag voice lane to seek"></div>
+              <div class="laneLabel">Chunks overview</div>
+              <div id="timeline" class="timeline"></div>
+              <div class="laneLabel">Voice chunks / pauses</div>
+              <div id="voiceTimelineLane" class="timelineLane voiceLane"></div>
             <div class="laneLabel">Voice volume automation</div>
             <div id="voiceAutomationLane" class="timelineLane voiceAutomationLane"></div>
             <div class="laneLabel musicLaneHead"><span>Music lanes</span></div>
@@ -577,10 +586,10 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
-    <script src="/studio/group_media_utils.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
-    <script src="/studio/app.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-12-group-timeline-split-fixes"></script>
+    <script src="/studio/group_media_utils.js?v=2026-05-12-group-timeline-split-fixes"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-group-timeline-split-fixes"></script>
+    <script src="/studio/app.js?v=2026-05-12-group-timeline-split-fixes"></script>
   </body>
 </html>
 
