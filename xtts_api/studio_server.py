@@ -58,7 +58,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-urgent-backend-grok-timeline-comfyui"
+STUDIO_BUILD = "2026-05-12-xai-image-quality-ui-fixes"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -68,7 +68,9 @@ DEFAULT_SILERO_API_URL = "http://127.0.0.1:7866"
 REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors"
 SVD_XT_CHECKPOINT = "svd_xt.safetensors"
 GROK_IMAGINE_VIDEO_MODEL = "grok-imagine-video"
-GROK_IMAGE_MODEL = "grok-2-image-1212"
+GROK_IMAGE_MODEL = "grok-imagine-image-quality"
+LEGACY_GROK_IMAGE_MODELS = {"grok-2-image", "grok-2-image-1212", "grok-imagine-image-pro"}
+GROK_IMAGE_RESOLUTIONS = {"1k", "2k"}
 ANIMATEDIFF_MOTION_MODEL = "mm_sd_v15_v2.ckpt"
 ANIMATEDIFF_SDXL_ENV_MODEL = "XTTS_ANIMATEDIFF_SDXL_MOTION_MODEL"
 ANIMATEDIFF_SDXL_MODEL_CANDIDATES = ("hsxl_temporal_layers.safetensors", "hotshotxl.safetensors", "mm_sdxl_v10_beta.ckpt", "mm_sdxl_v10_beta.safetensors")
@@ -337,6 +339,7 @@ DEFAULT_SETTINGS = {
     "image_provider": "comfyui",
     "image_model": "realvisxl",
     "image_grok_model": GROK_IMAGE_MODEL,
+    "image_grok_resolution": "1k",
     "image_quality_preset": "balanced",
     "image_aspect_ratio": "vertical",
     "image_width": 896,
@@ -440,6 +443,7 @@ class SettingsUpdate(BaseModel):
     image_provider: str | None = None
     image_model: str | None = None
     image_grok_model: str | None = None
+    image_grok_resolution: str | None = None
     image_quality_preset: str | None = None
     image_aspect_ratio: str | None = None
     image_width: int | None = Field(default=None, ge=64, le=4096)
@@ -3003,6 +3007,26 @@ def selected_chunk_audio_path(chunk: dict[str, Any]) -> Path | None:
     return resolve_user_path(audio_value) if audio_value else None
 
 
+def normalize_grok_image_model(value: Any) -> str:
+    model = str(value or "").strip()
+    if not model or model.lower() in LEGACY_GROK_IMAGE_MODELS:
+        return GROK_IMAGE_MODEL
+    return model
+
+
+def normalize_grok_image_resolution(value: Any) -> str:
+    resolution = str(value or DEFAULT_SETTINGS["image_grok_resolution"]).strip().lower()
+    return resolution if resolution in GROK_IMAGE_RESOLUTIONS else str(DEFAULT_SETTINGS["image_grok_resolution"])
+
+
+def grok_image_aspect_ratio_from_dimensions(width: int, height: int, orientation: str = "vertical") -> str:
+    if width > 0 and height > 0:
+        ratio = width / max(1, height)
+        candidates = {"16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1.0, "4:3": 4 / 3, "3:4": 3 / 4}
+        return min(candidates, key=lambda key: abs(candidates[key] - ratio))
+    return "16:9" if orientation == "horizontal" else "9:16"
+
+
 def sync_chunk_to_selected_version(chunk: dict[str, Any]) -> None:
     selected = get_selected_version(chunk)
     if selected:
@@ -3103,7 +3127,8 @@ def image_settings(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "provider": provider,
         "model": model,
-        "grok_model": str(raw.get("image_grok_model") or DEFAULT_SETTINGS["image_grok_model"]).strip() or GROK_IMAGE_MODEL,
+        "grok_model": normalize_grok_image_model(raw.get("image_grok_model") or DEFAULT_SETTINGS["image_grok_model"]),
+        "grok_resolution": normalize_grok_image_resolution(raw.get("image_grok_resolution")),
         "quality_preset": quality_preset,
         "aspect_ratio": aspect_ratio,
         "width": max(64, min(4096, width)),

@@ -10,7 +10,7 @@ import urllib.request
 def xai_access_error_hint(detail: str) -> str:
     lowered = str(detail or "").lower()
     if any(token in lowered for token in ("model", "not found", "does not exist", "not exist", "permission", "access", "unauthorized", "forbidden")):
-        return " Проверьте модель и доступ аккаунта xAI: укажите доступную модель в настройках Grok, например grok-2-image-1212, или модель, выданную вашей учётной записи/API."
+        return " Проверьте модель и доступ аккаунта xAI: для новых Grok-картинок используется grok-imagine-image-quality; legacy grok-2-image/grok-2-image-1212 и deprecated grok-imagine-image-pro больше не подходят."
     return ""
 
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-urgent-backend-grok-timeline-comfyui" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-xai-image-quality-ui-fixes" />
   </head>
   <body>
     <header>
@@ -84,17 +84,17 @@
           </div>
           <div class="projectSettingsStack">
             <h2>2. Настройки</h2>
-            <details class="settingsSection settingsGroup splitSettingsGroup">
-              <summary>Разделение текста · чанки и группы</summary>
+              <details class="settingsSection settingsGroup splitSettingsGroup">
+              <summary>Разделение текста · глобальные настройки чанков</summary>
               <div class="grid two imageSettingsGrid">
                 <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
                 <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
                 <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
               </div>
               <details class="settingsSubsection chunkStressSettings" open>
-                <summary>Chunk stress / pronunciation settings</summary>
+                <summary>Глобальные настройки ударений и произношения чанков</summary>
                 <div class="grid two imageSettingsGrid">
-                  <label>Stress mark style
+                  <label>Стиль отметки ударения
                     <select id="ttsStressMarkStyle">
                       <option value="acute">acute: молоко́</option>
                       <option value="plus">plus: молок+о</option>
@@ -102,13 +102,13 @@
                       <option value="plain">plain / strip stress marks</option>
                     </select>
                   </label>
-                  <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Enable pronunciation dictionary/stress preprocessing</label>
-                  <label>Dictionary path <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
-                  <label>Grok stress model override
-                    <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
+                  <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Включить словарь произношения и препроцессинг ударений</label>
+                  <label>Путь к словарю <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
+                  <label>Переопределение модели Grok для ударений
+                    <input id="aiStressModel" type="text" placeholder="пусто = модель по умолчанию для AI-группировки" />
                   </label>
-                  <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
-                  <label class="inlineCheck"><input id="aiGenerateGroupPromptsOnSplit" type="checkbox" checked /> Generate group prompts during smart splitting</label>
+                  <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> После обычного разделения добавить русские ударения в уже созданные чанки через Grok</label>
+                  <label class="inlineCheck"><input id="aiGenerateGroupPromptsOnSplit" type="checkbox" checked /> Генерировать промпты групп при умном разделении</label>
                 </div>
               </details>
               <div class="row wrap settingsActions">
@@ -271,12 +271,18 @@
               </details>
               <details class="settingsSubsection xaiKeySettings">
                 <summary>Grok / xAI · картинки и AI-помощники</summary>
-                <p class="videoI2vGrokEnableHint">Grok-картинки используют модель из поля ниже. Если xAI вернул “model does not exist” или “no access”, укажите модель, доступную вашему аккаунту/API; безопасное значение по умолчанию: grok-2-image-1212.</p>
+                <p class="videoI2vGrokEnableHint">Grok-картинки используют xAI Images API: модель grok-imagine-image-quality, aspect_ratio из ориентации/размера проекта и resolution 1k или 2k. Legacy grok-2-image/grok-2-image-1212 и deprecated grok-imagine-image-pro автоматически заменяются.</p>
                 <div class="grid two imageSettingsGrid">
                   <label>Grok / xAI API key
                     <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
                   </label>
-                  <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Модель Grok Image <input id="imageGrokModel" type="text" placeholder="grok-2-image-1212" /></label>
+                  <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Модель Grok Image <input id="imageGrokModel" type="text" placeholder="grok-imagine-image-quality" /></label>
+                  <label>Разрешение Grok Image
+                    <select id="imageGrokResolution">
+                      <option value="1k">1k</option>
+                      <option value="2k">2k</option>
+                    </select>
+                  </label>
                   <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
                   <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
                 </div>
@@ -571,10 +577,10 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-12-group-media-regressions-v2"></script>
-    <script src="/studio/group_media_utils.js?v=2026-05-12-group-media-regressions-v2"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-12-group-media-regressions-v2"></script>
-    <script src="/studio/app.js?v=2026-05-12-group-media-regressions-v2"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
+    <script src="/studio/group_media_utils.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
+    <script src="/studio/app.js?v=2026-05-12-xai-image-quality-ui-fixes"></script>
   </body>
 </html>
 

@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-urgent-backend-grok-timeline-comfyui";
+﻿const FRONTEND_BUILD = "2026-05-12-xai-image-quality-ui-fixes";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -7,7 +7,7 @@ const VIDEO_I2V_BACKEND_LABELS = {
   generated_hotshotxl: "HotshotXL / AnimateDiff SDXL",
   generated_grok_imagine_video: "Grok Imagine Video",
 };
-const GROK_IMAGE_MODEL = "grok-2-image-1212";
+const GROK_IMAGE_MODEL = "grok-imagine-image-quality";
 const IMAGE_QUALITY_PRESETS = {
   fast: { label: "Быстро", vertical: [832, 1216], horizontal: [1216, 832], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
   balanced: { label: "Баланс", vertical: [896, 1152], horizontal: [1152, 896], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
@@ -294,7 +294,8 @@ function settingsPayload() {
     music_volume: numericFieldValue("musicVolume", 0.18),
     image_provider: imageProviderModel.provider,
     image_model: imageProviderModel.model,
-    image_grok_model: $("imageGrokModel")?.value?.trim() || GROK_IMAGE_MODEL,
+    image_grok_model: window.XTTSStudio?.SettingsHelpers?.normalizeGrokImageModel?.($("imageGrokModel")?.value) || GROK_IMAGE_MODEL,
+    image_grok_resolution: $("imageGrokResolution")?.value || "1k",
     image_quality_preset: quality,
     image_aspect_ratio: aspect,
     image_width: Number($("imageWidth")?.value || resolved.width),
@@ -398,7 +399,7 @@ function updateResolvedImageSettingsHint() {
   const model = $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl";
   const isGrok = [provider, model].some((value) => String(value || "").toLowerCase() === "grok");
   if (hint) hint.textContent = isGrok
-    ? `Grok/xAI image API · ${$("imageGrokModel")?.value || GROK_IMAGE_MODEL} · ${resolved.label} sizing hint ${resolved.width}×${resolved.height}`
+    ? `Grok/xAI · ${window.XTTSStudio?.SettingsHelpers?.normalizeGrokImageModel?.($("imageGrokModel")?.value) || GROK_IMAGE_MODEL} · ${resolved.label} · aspect ${aspect === "horizontal" ? "16:9" : "9:16"} from ${resolved.width}×${resolved.height} · resolution ${$("imageGrokResolution")?.value || "1k"}`
     : `RealVisXL · ${resolved.label} · ${resolved.width}×${resolved.height} · ${resolved.steps} steps · CFG ${resolved.cfg}`;
   const active = document.activeElement;
   const setValue = (id, value) => { const el = $(id); if (el && active !== el) el.value = String(value); };
@@ -865,14 +866,15 @@ function renderSettings() {
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
-  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
   const setIfNotFocused = (id, value) => {
     const el = $(id);
     if (el && document.activeElement !== el) el.value = value;
   };
   setIfNotFocused("imageProvider", p.settings.image_provider ?? imageDefaults.image_provider);
   setIfNotFocused("imageModel", p.settings.image_model ?? imageDefaults.image_model);
-  setIfNotFocused("imageGrokModel", p.settings.image_grok_model ?? imageDefaults.image_grok_model);
+  setIfNotFocused("imageGrokModel", window.XTTSStudio?.SettingsHelpers?.normalizeGrokImageModel?.(p.settings.image_grok_model ?? imageDefaults.image_grok_model) || GROK_IMAGE_MODEL);
+  setIfNotFocused("imageGrokResolution", p.settings.image_grok_resolution ?? imageDefaults.image_grok_resolution);
   setIfNotFocused("imageAspectRatio", p.settings.image_aspect_ratio ?? imageDefaults.image_aspect_ratio);
   setImageQualityPreset(p.settings.image_quality_preset ?? imageDefaults.image_quality_preset, { updateFields: false });
   setIfNotFocused("imageWidth", p.settings.image_width ?? imageDefaults.image_width);
