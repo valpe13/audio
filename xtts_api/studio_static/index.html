@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-cleanup-stage1-v1" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-cleanup-stage2-v1" />
   </head>
   <body>
     <header>
@@ -29,24 +29,6 @@
       </div>
       <div id="chunkNavList" class="chunkNavList">No chunks.</div>
       <div id="groupNavList" class="groupNavList" hidden>No groups.</div>
-    </aside>
-
-    <aside id="musicLibraryPanel" class="musicLibraryPanel" aria-label="Music library">
-      <div class="row between wrap">
-        <h2>Music library</h2>
-        <button id="musicLoopChainBtn" type="button" class="secondary">Loop chain to end</button>
-      </div>
-      <label>Import music files <input id="musicLibraryUpload" type="file" accept="audio/*" multiple /></label>
-      <label>Add path / URL
-        <input id="musicLibraryPath" type="text" placeholder="xtts_api/studio_projects/uploads/music.mp3" />
-      </label>
-      <div class="row wrap">
-        <button id="musicLibraryAddPathBtn" type="button" class="secondary">Add source</button>
-        <button id="musicLibraryAddAtCursorBtn" type="button">Add selected at playhead</button>
-        <button id="musicLibraryAppendBtn" type="button" class="secondary">Append selected</button>
-      </div>
-      <div id="musicLibraryList" class="musicLibraryList">No music sources.</div>
-      <p class="musicLibraryHint">Drag a source onto the Music / audio lane, or use the fallback buttons above.</p>
     </aside>
 
     <main>
@@ -84,20 +66,35 @@
       <div id="projectScreen" class="screenMode active">
         <section class="panel grid two">
           <div>
-            <h2>1. Text</h2>
+            <h2>1. Текст</h2>
             <textarea id="fullText" placeholder="Введите полный русский текст здесь…"></textarea>
             <div class="row wrap">
-              <label>Max chars <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
-              <label>Base sentence pause min, sec <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
-              <label>Base sentence pause max, sec <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
-              <button id="splitBtn" type="button">Split into chunks</button>
-              <button id="saveTextBtn" type="button" class="secondary">Save text</button>
+              <button id="saveTextBtn" type="button" class="secondary">Сохранить текст</button>
             </div>
           </div>
           <div class="projectSettingsStack">
-            <h2>2. Settings</h2>
-            <details class="settingsSection settingsGroup audioSettingsGroup" open>
-              <summary>Audio · TTS / voice / stress</summary>
+            <h2>2. Настройки</h2>
+            <details class="settingsSection settingsGroup splitSettingsGroup" open>
+              <summary>Разделение текста · чанки и группы</summary>
+              <div class="grid two imageSettingsGrid">
+                <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
+                <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
+                <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
+              </div>
+              <div class="row wrap settingsActions">
+                <button id="splitBtn" type="button">Разделить на чанки</button>
+                <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
+                <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
+                <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
+                <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
+                <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
+              </div>
+              <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
+              <p class="imageResolvedSettings">Настройки разделения используются при первичном создании чанков. Группы можно создать автоматически через Grok или вручную, затем редактировать на экране «Группы».</p>
+            </details>
+
+            <details class="settingsSection settingsGroup audioSettingsGroup">
+              <summary>Аудио · TTS / голос / ударения</summary>
               <label>Reference WAV path
                 <input id="referencePath" type="text" />
               </label>
@@ -131,22 +128,33 @@
             </details>
 
             <details class="settingsSection settingsGroup musicSettingsGroup">
-              <summary>Music · library / mix</summary>
-              <label>Music path
-                <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
+              <summary>Музыка · библиотека / микс</summary>
+              <label>Путь к музыке
+                <input id="musicPath" type="text" placeholder="WAV/FLAC/MP3 или URL" />
               </label>
               <div class="row wrap">
-                <label>Upload music <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
-                <button id="addMusicSourceBtn" type="button" class="secondary">Add audio source/clip from path</button>
+                <label>Загрузить музыку <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
+                <button id="addMusicSourceBtn" type="button" class="secondary">Добавить источник/клип из пути</button>
+                <button id="musicLoopChainBtn" type="button" class="secondary">Зациклить цепочку до конца</button>
               </div>
+              <label>Добавить путь / URL
+                <input id="musicLibraryPath" type="text" placeholder="xtts_api/studio_projects/uploads/music.mp3" />
+              </label>
+              <div class="row wrap">
+                <button id="musicLibraryAddPathBtn" type="button" class="secondary">Добавить источник</button>
+                <button id="musicLibraryAddAtCursorBtn" type="button">Добавить выбранное в курсор</button>
+                <button id="musicLibraryAppendBtn" type="button" class="secondary">Добавить выбранное в конец</button>
+              </div>
+              <label>Импорт музыкальных файлов <input id="musicLibraryUpload" type="file" accept="audio/*" multiple /></label>
+              <div id="musicLibraryList" class="musicLibraryList">Источников музыки нет.</div>
               <div class="sliders">
-                <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
+                <label>Громкость музыки <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
               </div>
-              <p class="imageResolvedSettings">Use the side Music library for multi-file sources and exact timeline placement; these controls keep project-level fallback path and default mix volume.</p>
+              <p class="imageResolvedSettings">Перетаскивайте источник на музыкальную дорожку таймлайна или используйте кнопки выше. Здесь же задаются резервный путь и громкость микса проекта.</p>
             </details>
 
-            <details class="settingsSection settingsGroup imageSettingsGroup" open aria-label="Image generation settings">
-              <summary>Image · Local / ComfyUI / Grok</summary>
+            <details class="settingsSection settingsGroup imageSettingsGroup" aria-label="Настройки генерации картинок">
+              <summary>Картинки · Local / ComfyUI / Grok</summary>
               <details class="settingsSubsection imageSimpleSettings" open>
                 <summary>Presets and shared image controls</summary>
               <div class="imageSimpleHead">
@@ -185,16 +193,16 @@
               <p id="imageResolvedSettings" class="imageResolvedSettings">RealVisXL · balanced · 896×1152 · 22 steps</p>
               </details>
               <details class="settingsSubsection imageSettings" open>
-                <summary>Provider / model</summary>
+                <summary>Провайдер / модель</summary>
                 <div class="grid two imageSettingsGrid">
-                  <label>Provider
+                  <label>Провайдер
                     <select id="imageProvider">
                       <option value="placeholder">placeholder</option>
                       <option value="comfyui">comfyui</option>
                       <option value="grok">grok / xAI image API</option>
                     </select>
                   </label>
-                  <label>Model
+                  <label>Модель
                     <select id="imageModel">
                       <option value="sdxl">sdxl</option>
                       <option value="realvisxl">realvisxl</option>
@@ -260,8 +268,8 @@
               </details>
             </details>
 
-            <details class="settingsSection settingsGroup videoSettingsGroup" open aria-label="Video animation backend settings">
-              <summary>Video · Local backends / Grok Imagine Video</summary>
+            <details class="settingsSection settingsGroup videoSettingsGroup" aria-label="Настройки видео-анимации">
+              <summary>Видео · локальные бэкенды / Grok Imagine Video</summary>
               <details class="settingsSubsection videoI2vSettings" open>
                 <summary>Video backend and quality</summary>
                 <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
@@ -348,29 +356,26 @@
               <p class="imageResolvedSettings">Grok Imagine Video uses /api/xai/imagine-video/diagnostics for setup checks. Confirmed settings are model grok-imagine-video, aspect ratios 16:9/9:16, and resolutions 480p/720p; 1080p is not exposed until official docs confirm it. Prompt-only looping is not guaranteed, so Grok videos default to ffmpeg ping-pong post-processing after download; use crossfade only when forward motion is more important than seam reliability.</p>
             </details>
             <div class="row wrap settingsActions">
-              <button id="saveSettingsBtn" type="button" class="secondary">Save settings</button>
+              <button id="saveSettingsBtn" type="button" class="secondary">Сохранить настройки</button>
             </div>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="row between wrap">
-            <h2>3. Project actions</h2>
-            <div class="row wrap">
-              <button id="generateAllBtn" type="button">Generate missing chunks</button>
-              <button id="playSequenceBtn" type="button" class="secondary">Play generated sequence</button>
-              <button id="stopSequenceBtn" type="button" class="secondary">Stop sequence</button>
-              <button id="exportBtn" type="button">Queue export</button>
-            </div>
+        <details class="panel collapsiblePanel" open>
+          <summary><h2>3. Действия проекта</h2></summary>
+          <div class="row wrap">
+            <button id="generateAllBtn" type="button">Сгенерировать отсутствующие чанки</button>
+            <button id="playSequenceBtn" type="button" class="secondary">Воспроизвести последовательность</button>
+            <button id="stopSequenceBtn" type="button" class="secondary">Остановить</button>
           </div>
-          <div id="sequenceStatus" class="sequenceStatus">Stopped</div>
-          <div id="timeline" class="timeline"></div>
-            <p class="chunkOverviewHint">Select a numbered chunk in the left list to edit its text, pause_after, generation, and selected audio version. Split pauses use this base range for sentence transitions; paragraph and section boundaries get longer natural pauses.</p>
-        </section>
+          <div id="sequenceStatus" class="sequenceStatus">Остановлено</div>
+          <p class="chunkOverviewHint">Выберите чанк в левой панели, чтобы редактировать текст, pause_after, генерацию и выбранную аудиоверсию. Основной таймлайн находится в нижней панели.</p>
+        </details>
 
-        <section class="panel">
+        <details class="panel collapsiblePanel" open>
+          <summary><h2>4. Очередь генерации</h2></summary>
           <div class="row between wrap">
-            <h2>4. Generation queue</h2>
+            <span></span>
               <button id="refreshQueueBtn" type="button" class="secondary">Refresh queue</button>
               <button id="clearCompletedQueueBtn" type="button" class="secondary">Clear completed</button>
           </div>
@@ -379,10 +384,11 @@
             <div id="progressText">Idle</div>
           </div>
           <div id="queueList" class="queueList">No tasks.</div>
-        </section>
+        </details>
 
-        <section class="panel">
-          <h2>5. Export</h2>
+        <details class="panel collapsiblePanel" open>
+          <summary><h2>5. Экспорт</h2></summary>
+          <div class="row wrap exportActions"><button id="exportBtn" type="button">Поставить экспорт в очередь</button></div>
           <div class="exportSettings grid two">
             <label>Export type
               <select id="exportType">
@@ -451,7 +457,7 @@
           </div>
           <p class="imageResolvedSettings">Video export uses existing group videos when present, otherwise group images as still frames, looped/trimmed to group chunk ranges and muxed with the assembled audio. The video speed curve is baked into exported video segments while preserving the assembled audio timeline.</p>
           <div id="exportResult">No export yet.</div>
-        </section>
+        </details>
       </div>
 
       <div id="chunkScreen" class="screenMode">
@@ -473,13 +479,7 @@
               <p class="groupAiHint">Grok может сгруппировать чанки по сценам и подготовить подсказки для будущего видеоряда.</p>
             </div>
             <div class="groupAiControls">
-              <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
-              <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
-              <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
-              <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Generate all SVD/SVD-XT videos</button>
-              <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
-              <span id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</span>
-              <button id="backToProjectFromGroupBtn" type="button" class="secondary">Back to Project</button>
+              <button id="backToProjectFromGroupBtn" type="button" class="secondary">Назад к проекту</button>
             </div>
           </div>
           <div id="groupDetailPlaceholder" class="groupPlaceholder">Выберите группу в левой панели или на таймлайне, чтобы открыть заготовку настроек будущего видеоряда.</div>
@@ -555,8 +555,9 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/group_media_timeline.js?v=2026-05-12-studio-cleanup-stage1-v1"></script>
-    <script src="/studio/app.js?v=2026-05-12-studio-cleanup-stage1-v1"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
+    <script src="/studio/app.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
   </body>
 </html>
 

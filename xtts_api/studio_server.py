@@ -54,7 +54,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-studio-cleanup-stage1-v1"
+STUDIO_BUILD = "2026-05-12-studio-cleanup-stage2-v1"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -5962,6 +5962,21 @@ def update_settings(payload: SettingsUpdate, project_id: str | None = Query(defa
         save_project_secrets(pid, secrets)
     if "image_comfyui_autostart" in data:
         project.setdefault("settings", {})["image_comfyui_autostart_user_set"] = True
+    if "image_provider" in data or "image_model" in data:
+        provider = str(data.get("image_provider") or project.get("settings", {}).get("image_provider") or DEFAULT_SETTINGS["image_provider"]).strip().lower()
+        model = str(data.get("image_model") or project.get("settings", {}).get("image_model") or DEFAULT_SETTINGS["image_model"]).strip().lower()
+        if provider == "xai":
+            provider = "grok"
+        if provider not in {"placeholder", "comfyui", "grok"}:
+            provider = "comfyui"
+        if provider == "grok":
+            model = "grok"
+        elif model == "grok":
+            model = "realvisxl"
+        if model not in {"realvisxl", "sdxl", "juggernautxl", "dreamshaperxl", "flux", "custom", "grok"}:
+            model = "custom"
+        data["image_provider"] = provider
+        data["image_model"] = model
     for key, value in data.items():
         if value is not None:
             project["settings"][key] = value

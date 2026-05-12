@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-studio-cleanup-stage1-v1";
+﻿const FRONTEND_BUILD = "2026-05-12-studio-cleanup-stage2-v1";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -281,13 +281,18 @@ function settingsPayload() {
   const aspect = $("imageAspectRatio")?.value || "vertical";
   const resolved = resolvedImagePreset(quality, aspect);
   const videoResolved = resolvedVideoI2vPreset(videoQuality);
+  const imageProviderModel = window.XTTSStudio?.SettingsHelpers?.normalizeImageProviderModel?.(
+    $("imageProvider")?.value || state.project?.settings?.image_provider || "comfyui",
+    $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl",
+    { preferProvider: true },
+  ) || { provider: $("imageProvider")?.value || "comfyui", model: $("imageModel")?.value || "realvisxl" };
   const payload = {
     reference_path: trimmedFieldValue("referencePath"),
     music_path: trimmedFieldValue("musicPath"),
     voice_volume: numericFieldValue("voiceVolume", 1),
     music_volume: numericFieldValue("musicVolume", 0.18),
-    image_provider: $("imageProvider")?.value || "comfyui",
-    image_model: $("imageModel")?.value || "realvisxl",
+    image_provider: imageProviderModel.provider,
+    image_model: imageProviderModel.model,
     image_grok_model: $("imageGrokModel")?.value?.trim() || GROK_IMAGE_MODEL,
     image_quality_preset: quality,
     image_aspect_ratio: aspect,
@@ -957,11 +962,10 @@ function renderFluxWorkflowNote() {
 function syncGrokImageSettingsUi() {
   const provider = $("imageProvider");
   const model = $("imageModel");
-  const selected = String(provider?.value || "").toLowerCase() === "grok" || String(model?.value || "").toLowerCase() === "grok";
-  if (selected) {
-    if (provider && document.activeElement !== provider) provider.value = "grok";
-    if (model && document.activeElement !== model) model.value = "grok";
-  }
+  const normalized = window.XTTSStudio?.SettingsHelpers?.normalizeImageProviderModel?.(provider?.value, model?.value, { preferProvider: document.activeElement === provider }) || { provider: provider?.value, model: model?.value };
+  const selected = normalized.provider === "grok" || normalized.model === "grok";
+  if (provider && document.activeElement !== provider) provider.value = normalized.provider;
+  if (model && document.activeElement !== model) model.value = normalized.model;
   const panel = $("grokImageSettingsPanel");
   if (panel) panel.classList.toggle("active", selected);
   const grokModel = $("imageGrokModel");
@@ -1942,7 +1946,7 @@ function renderMusicLibraryPanel() {
   const loopBtn = $("musicLoopChainBtn");
   if (loopBtn) {
     loopBtn.classList.toggle("active", music.mode === "chain_loop");
-    loopBtn.textContent = music.mode === "chain_loop" ? "Loop chain: ON" : "Loop chain to end";
+    loopBtn.textContent = music.mode === "chain_loop" ? "Цепочка зациклена" : "Зациклить цепочку до конца";
   }
   const addButtonsDisabled = !music.sources.length;
   for (const id of ["musicLibraryAddAtCursorBtn", "musicLibraryAppendBtn"]) {
@@ -1950,7 +1954,7 @@ function renderMusicLibraryPanel() {
     if (button) button.disabled = addButtonsDisabled;
   }
   if (!music.sources.length) {
-    root.innerHTML = `<div class="chunkNavEmpty"><strong>No music sources</strong><small>Upload audio files or add a path/URL.</small></div>`;
+    root.innerHTML = `<div class="chunkNavEmpty"><strong>Источников музыки нет</strong><small>Загрузите аудиофайлы или добавьте путь/URL.</small></div>`;
     return;
   }
   root.innerHTML = "";
@@ -1962,8 +1966,8 @@ function renderMusicLibraryPanel() {
     item.innerHTML = `
       <strong>${escapeHtml(source.label || shortPath(source.path))}</strong>
       <small>${escapeHtml(source.path)}</small>
-      <small>${source.duration ? formatTime(source.duration) : "duration loads after preview"}</small>
-      <button type="button" class="secondary deleteMusicSourceBtn">Delete source + lanes</button>
+      <small>${source.duration ? formatTime(source.duration) : "длительность загрузится после предпрослушивания"}</small>
+      <button type="button" class="secondary deleteMusicSourceBtn">Удалить источник и дорожки</button>
     `;
     item.onclick = () => selectMusicSource(source.id);
     item.querySelector(".deleteMusicSourceBtn").onclick = (event) => { event.stopPropagation(); deleteMusicSource(source.id); };
