@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-13-group-media-section-order-fallback" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-13-subtitles-export-scopes" />
   </head>
   <body>
     <header>
@@ -483,7 +483,15 @@
                 <option value="high">High</option>
               </select>
             </label>
+            <label>Область экспорта
+              <select id="exportScope">
+                <option value="full">Всё видео</option>
+                <option value="selected_groups">Выбранные группы</option>
+                <option value="all_groups_separate">Все группы отдельными файлами</option>
+              </select>
+            </label>
           </div>
+          <div id="exportGroupList" class="exportGroupList" hidden></div>
           <p class="imageResolvedSettings">Video export uses existing group videos when present, otherwise group images as still frames, looped/trimmed to group chunk ranges and muxed with the assembled audio. The video speed curve is baked into exported video segments while preserving the assembled audio timeline.</p>
           <div id="exportResult">No export yet.</div>
         </details>
@@ -557,8 +565,6 @@
           <input id="timelineScrubber" class="timelineScrubber" type="range" min="0" max="0" step="0.001" value="0" />
             <div id="timelineLaneWrap" class="timelineLaneWrap">
               <div id="transportPlayhead" class="transportPlayhead" title="Drag voice lane to seek"></div>
-              <div class="laneLabel">Chunks overview</div>
-              <div id="timeline" class="timeline"></div>
               <div class="laneLabel">Voice chunks / pauses</div>
               <div id="voiceTimelineLane" class="timelineLane voiceLane"></div>
             <div class="laneLabel">Voice volume automation</div>
@@ -586,10 +592,11 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-13-settings-aspect-timeline-fallback"></script>
-    <script src="/studio/group_media_utils.js?v=2026-05-13-settings-aspect-timeline-fallback"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-13-settings-aspect-timeline-fallback"></script>
-    <script src="/studio/app.js?v=2026-05-13-settings-aspect-timeline-fallback"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-13-subtitles-export-scopes"></script>
+    <script src="/studio/group_media_utils.js?v=2026-05-13-subtitles-export-scopes"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-13-subtitles-export-scopes"></script>
+    <script src="/studio/group_subtitle_timeline.js?v=2026-05-13-subtitles-export-scopes"></script>
+    <script src="/studio/app.js?v=2026-05-13-subtitles-export-scopes"></script>
   </body>
 </html>
 

@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-settings-aspect-timeline-fallback";
+﻿const FRONTEND_BUILD = "2026-05-13-subtitles-export-scopes";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1233,6 +1233,7 @@ function setTimelineCursor(seconds, { fromPlayback = false } = {}) {
 function renderTimeline() {
   const timeline = $("timeline");
   if (!timeline) {
+    buildTimelineArrangement();
     renderTransportLanes();
     return;
   }
@@ -1518,6 +1519,50 @@ function groupMediaSectionHtml(group, mediaItemsHtml) {
         <label>Длительность по умолчанию, сек <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
       </div>
       <div class="groupMediaList legacyHidden">${mediaItemsHtml || `<p class="groupMediaEmpty">Дополнительных медиа пока нет. Сгенерированные картинка/видео используются автоматически.</p>`}</div>
+    </section>
+  `;
+}
+
+function groupSubtitleSectionHtml(group) {
+  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
+  const defaults = subtitle?.defaults?.(group.subtitle_defaults) || group.subtitle_defaults || {};
+  return `
+    <section class="groupDetailSection groupSubtitleEditor">
+      <div class="groupSectionHead"><div><h4>Субтитры группы</h4><p>Блоки используют текст группы или чанков и показываются отдельной дорожкой только там, где они добавлены.</p></div><div class="row wrap"><button type="button" class="secondary addGroupSubtitleFullBtn">Добавить субтитры на всю группу</button><button type="button" class="secondary addGroupSubtitleChunksBtn">Добавить по чанкам</button></div></div>
+      <div class="grid two imageSettingsGrid groupSubtitleDefaults">
+        <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
+        <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label><label>Размер <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 42)}" /></label><label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label><label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label><label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /></label><label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
+      </div>
+      <div class="groupSubtitleTimelineHost"><div class="groupMediaTimelineEmpty">Дорожка субтитров загружается…</div></div><div class="groupSubtitleBlocks"></div>
+    </section>`;
+}
+
+function groupSubtitleSectionHtml(group) {
+  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
+  const defaults = subtitle?.defaults?.(group.subtitle_defaults) || group.subtitle_defaults || {};
+  return `
+    <section class="groupDetailSection groupSubtitleEditor">
+      <div class="groupSectionHead">
+        <div>
+          <h4>Субтитры группы</h4>
+          <p>Блоки используют текст группы или чанков и показываются отдельной дорожкой только там, где они добавлены.</p>
+        </div>
+        <div class="row wrap">
+          <button type="button" class="secondary addGroupSubtitleFullBtn">Добавить субтитры на всю группу</button>
+          <button type="button" class="secondary addGroupSubtitleChunksBtn">Добавить по чанкам</button>
+        </div>
+      </div>
+      <div class="grid two imageSettingsGrid groupSubtitleDefaults">
+        <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
+        <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label>
+        <label>Размер <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 42)}" /></label>
+        <label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label>
+        <label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label>
+        <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /></label>
+        <label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
+      </div>
+      <div class="groupSubtitleTimelineHost"><div class="groupMediaTimelineEmpty">Дорожка субтитров загружается…</div></div>
+      <div class="groupSubtitleBlocks"></div>
     </section>
   `;
 }
@@ -2366,7 +2411,7 @@ function renderCentralScreen() {
   $("previewModeTab")?.classList.toggle("secondary", !isPreview);
   renderProjectsList();
   if (isChunk) renderChunkDetail(selectedChunk());
-  if (isGroup) renderGroupDetail(selectedGroup());
+  if (isGroup) renderGroupDetail(selectedGroup(), { force: true });
   if (isPreview) renderPreviewScreen();
 }
 
@@ -2501,6 +2546,8 @@ function groupDetailSignature(group) {
     (group.chunk_ids || []).join(","),
     aiFields,
     JSON.stringify(normalizeGroupMediaItems(group)),
+    JSON.stringify(group.subtitle_defaults || {}),
+    JSON.stringify(group.subtitle_blocks || []),
     image.status || "",
     image.url || "",
     image.path || "",
@@ -2779,6 +2826,7 @@ function renderGroupDetail(group, { force = false } = {}) {
     ${groupChunkCompositionHtml(group)}
     ${groupPromptFieldsHtml(group, editableFields)}
     ${groupMediaSectionHtml(group, mediaItemsHtml)}
+    ${groupSubtitleSectionHtml(group)}
     <section class="groupImagePanel image-${escapeHtml(imageStatus)}">
       <div class="groupImageHead">
         <div>
@@ -2827,8 +2875,34 @@ function renderGroupDetail(group, { force = false } = {}) {
   if (generateVideoButton) generateVideoButton.onclick = () => enqueueGroupVideo(group.id, videoExists);
   else console.warn("Group video button missing", { groupId: group.id });
   root.appendChild(card);
+  renderGroupSubtitleEditor(card, group);
   renderGroupMediaThumbs(card, group);
   renderGroupMediaTimeline(card, group);
+}
+
+function groupSubtitleDefaultsFromCard(card) {
+  const value = (field) => card.querySelector(`[data-subtitle-default='${field}']`)?.value || "";
+  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: Number(value("background_opacity") || 0.45), outline: Number(value("outline") || 2) }) || {};
+}
+
+function renderGroupSubtitleEditor(card, group) {
+  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
+  const list = card?.querySelector?.(".groupSubtitleBlocks");
+  const host = card?.querySelector?.(".groupSubtitleTimelineHost");
+  if (!list || !host) return;
+  if (!subtitle) { host.innerHTML = `<div class="groupMediaTimelineFallback" role="status">Модуль субтитров не загрузился. Обновите страницу без кэша.</div>`; return; }
+  const chunks = groupChunkTimelineItems(group);
+  list.innerHTML = "";
+  (Array.isArray(group.subtitle_blocks) ? group.subtitle_blocks : []).forEach((block, index) => subtitle.appendRow(list, subtitle.normalizeBlock(block, index, group.duration, group.subtitle_defaults)));
+  const rerender = () => subtitle.render(host, group, subtitle.blocksFromRows(card, group.duration, groupSubtitleDefaultsFromCard(card)));
+  card.querySelector(".addGroupSubtitleFullBtn")?.addEventListener("click", () => { subtitle.appendRow(list, subtitle.blockFromGroup({ ...group, subtitle_defaults: groupSubtitleDefaultsFromCard(card) }, chunks)); rerender(); });
+  card.querySelector(".addGroupSubtitleChunksBtn")?.addEventListener("click", () => { subtitle.blocksFromChunks({ ...group, subtitle_defaults: groupSubtitleDefaultsFromCard(card) }, chunks).forEach((block) => subtitle.appendRow(list, block)); rerender(); });
+  card.querySelectorAll("[data-subtitle-default]").forEach((input) => { input.addEventListener("input", rerender); input.addEventListener("change", rerender); });
+  list.addEventListener("input", rerender);
+  list.addEventListener("change", rerender);
+  list.addEventListener("click", (event) => { if (event.target.closest?.(".deleteSubtitleBlockBtn")) setTimeout(rerender, 0); });
+  rerender();
+  subtitle.bind(host, card);
 }
 
 async function splitGroupsNormal() {
@@ -2941,6 +3015,9 @@ async function saveGroupPrompts(groupId, card) {
   payload.chunk_ids = [...card.querySelectorAll(".chunkPick input[type='checkbox']:checked")].map((input) => input.value);
   payload.media_layout = card.querySelector("[data-group-setting='media_layout']")?.value || "sequence";
   payload.default_media_duration_sec = Number(card.querySelector("[data-group-setting='default_media_duration_sec']")?.value || 0);
+  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
+  payload.subtitle_defaults = groupSubtitleDefaultsFromCard(card);
+  payload.subtitle_blocks = subtitle ? subtitle.blocksFromRows(card, selectedGroup()?.duration || 1, payload.subtitle_defaults) : [];
   payload.media_items = [...card.querySelectorAll(".groupMediaItem")].map((row) => {
     const value = (field) => row.querySelector(`[data-media-field='${field}']`)?.value || "";
     const pathOrUrl = value("path");
@@ -3314,6 +3391,7 @@ function replaceChunkCard(chunk) {
 function renderExport() {
   const exp = state.project.export;
   const root = $("exportResult");
+  renderExportGroupScopeList();
   if (!root) return;
   if (!exp || !exp.url) {
     root.innerHTML = "No export yet.";
@@ -3335,8 +3413,16 @@ function renderExport() {
   `;
 }
 
+function renderExportGroupScopeList() {
+  const root = $("exportGroupList");
+  if (!root) return;
+  const groups = groupTimelineSpans();
+  root.innerHTML = groups.length ? groups.map((group) => `<label class="exportGroupPick"><input type="checkbox" value="${escapeHtml(group.id)}" ${group.id === state.selectedGroupId ? "checked" : ""} /> ${escapeHtml(group.title)} · ${escapeHtml(formatTime(group.start))}–${escapeHtml(formatTime(group.end))}</label>`).join("") : `<div class="groupMediaEmpty">Групп пока нет.</div>`;
+}
+
 function exportPayloadFromUi() {
   const sampleRateValue = $("exportSampleRate")?.value || "";
+  const exportScope = $("exportScope")?.value || "full";
   return {
     export_type: $("exportType")?.value || "audio",
     audio_format: $("exportAudioFormat")?.value || "wav",
@@ -3349,6 +3435,9 @@ function exportPayloadFromUi() {
     fps: Number($("exportFps")?.value || 30),
     video_quality: $("exportVideoQuality")?.value || "medium",
     video_fit: $("exportVideoFit")?.value || "cover",
+    export_scope: exportScope,
+    group_ids: [...document.querySelectorAll("#exportGroupList input[type='checkbox']:checked")].map((input) => input.value),
+    separate_groups: exportScope === "all_groups_separate",
   };
 }
 
@@ -3366,6 +3455,8 @@ function syncExportSettingsUi() {
     bitrate.disabled = audioFormat === "wav" || audioFormat === "flac";
     bitrate.closest("label")?.classList.toggle("disabledSetting", bitrate.disabled);
   }
+  const groupList = $("exportGroupList");
+  if (groupList) groupList.hidden = ($("exportScope")?.value || "full") === "full";
 }
 
 function renderCurrentProjectInfo() {
@@ -4244,7 +4335,7 @@ $("exportBtn").onclick = async () => {
   } catch (err) { setStatus(`Error: ${err.message}`); }
 };
 
-for (const id of ["exportType", "exportAudioFormat", "exportAudioBitrate", "exportSampleRate", "exportChannels", "exportVideoFormat", "exportOrientation", "exportResolution", "exportFps", "exportVideoFit", "exportVideoQuality"]) {
+for (const id of ["exportType", "exportAudioFormat", "exportAudioBitrate", "exportSampleRate", "exportChannels", "exportVideoFormat", "exportOrientation", "exportResolution", "exportFps", "exportVideoFit", "exportVideoQuality", "exportScope"]) {
   $(id)?.addEventListener("change", syncExportSettingsUi);
   $(id)?.addEventListener("input", syncExportSettingsUi);
 }

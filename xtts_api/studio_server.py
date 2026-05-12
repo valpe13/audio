@@ -1,4 +1,5 @@
 import base64
+import copy
 import inspect
 import hashlib
 import html
@@ -58,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-settings-aspect-timeline-fallback"
+STUDIO_BUILD = "2026-05-13-subtitles-export-scopes"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -584,6 +585,8 @@ class GroupUpdate(BaseModel):
     media_items: list[GroupMediaItem] | None = None
     media_layout: str | None = None
     default_media_duration_sec: float | None = Field(default=None, ge=0.0, le=36000.0)
+    subtitle_defaults: dict[str, Any] | None = None
+    subtitle_blocks: list[dict[str, Any]] | None = None
 
 
 class GroupCreate(BaseModel):
@@ -654,6 +657,9 @@ class ExportRequest(BaseModel):
     fps: int = Field(default=30, ge=1, le=60)
     video_quality: str = Field(default="medium")
     video_fit: str = Field(default="cover")
+    export_scope: str = Field(default="full")
+    group_ids: list[str] = Field(default_factory=list)
+    separate_groups: bool = False
 
 
 class ProjectCreate(BaseModel):
@@ -1247,6 +1253,66 @@ def normalize_group_media_items(raw_items: Any, group: dict[str, Any] | None = N
     return items
 
 
+DEFAULT_SUBTITLE_SETTINGS = {
+    "position": "bottom",
+    "font_family": "Arial",
+    "font_size": 42,
+    "color": "#ffffff",
+    "background": "#000000",
+    "background_opacity": 0.45,
+    "outline": 2,
+}
+
+
+def normalize_subtitle_defaults(raw: Any) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    out = dict(DEFAULT_SUBTITLE_SETTINGS)
+    if str(data.get("position") or "").lower() in {"top", "center", "bottom"}:
+        out["position"] = str(data.get("position")).lower()
+    for key in ("font_family", "color", "background"):
+        if data.get(key) is not None:
+            out[key] = truncate_text(data.get(key), 120)
+    for key, min_value, max_value in (("font_size", 8, 160), ("background_opacity", 0, 1), ("outline", 0, 12)):
+        try:
+            out[key] = max(min_value, min(max_value, float(data.get(key, out[key]))))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def normalize_subtitle_blocks(raw_blocks: Any, group: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    duration = 36000.0
+    if isinstance(group, dict):
+        try:
+            duration = max(0.05, float(group.get("duration") or group.get("duration_sec") or duration))
+        except (TypeError, ValueError):
+            pass
+    defaults = normalize_subtitle_defaults(group.get("subtitle_defaults") if isinstance(group, dict) else None)
+    blocks: list[dict[str, Any]] = []
+    for idx, raw in enumerate(raw_blocks if isinstance(raw_blocks, list) else []):
+        if not isinstance(raw, dict):
+            continue
+        start = max(0.0, min(duration, float(raw.get("start_offset_sec") or raw.get("start") or 0.0)))
+        block_duration = max(0.05, min(duration - start if duration > start else duration, float(raw.get("duration_sec") or raw.get("duration") or max(0.05, duration - start))))
+        block_defaults = normalize_subtitle_defaults({**defaults, **raw})
+        blocks.append({
+            "id": str(raw.get("id") or f"subtitle_{idx + 1:03d}"),
+            "enabled": bool(raw.get("enabled", True)),
+            "text": truncate_text(raw.get("text"), 4000),
+            "start_offset_sec": round(start, 3),
+            "duration_sec": round(block_duration, 3),
+            "position": block_defaults["position"],
+            "font_family": block_defaults["font_family"],
+            "font_size": block_defaults["font_size"],
+            "color": block_defaults["color"],
+            "background": block_defaults["background"],
+            "background_opacity": block_defaults["background_opacity"],
+            "outline": block_defaults["outline"],
+            "order": int(raw.get("order") if str(raw.get("order", "")).isdigit() else idx),
+        })
+    return blocks
+
+
 def append_group_media_library_item(group: dict[str, Any], media_type: str, meta: dict[str, Any]) -> dict[str, Any] | None:
     path = str(meta.get("path") or "").strip()
     url = str(meta.get("url") or "").strip()
@@ -1420,6 +1486,8 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
         item["media_items"] = normalize_group_media_items(raw_group.get("media_items"), item)
         item["media_layout"] = normalize_group_media_layout(raw_group.get("media_layout"))
         item["default_media_duration_sec"] = normalize_group_media_duration(raw_group.get("default_media_duration_sec"), 0.0)
+        item["subtitle_defaults"] = normalize_subtitle_defaults(raw_group.get("subtitle_defaults"))
+        item["subtitle_blocks"] = normalize_subtitle_blocks(raw_group.get("subtitle_blocks"), item)
         if raw_group.get("repair_note"):
             item["repair_note"] = truncate_text(raw_group.get("repair_note"), 500)
         normalized.append(item)
@@ -4413,6 +4481,12 @@ def update_group_prompts(project: dict[str, Any], group_id: str, payload: GroupU
         if key == "default_media_duration_sec":
             group["default_media_duration_sec"] = normalize_group_media_duration(value, 0.0)
             continue
+        if key == "subtitle_defaults":
+            group["subtitle_defaults"] = normalize_subtitle_defaults(value)
+            continue
+        if key == "subtitle_blocks":
+            group["subtitle_blocks"] = normalize_subtitle_blocks(value, group)
+            continue
         group[key] = truncate_text(value, limits.get(key, 500))
     normalize_arrangement(project)
     return find_video_group(project, group_id) or group
@@ -5301,6 +5375,25 @@ def group_time_ranges(project: dict[str, Any]) -> list[tuple[dict[str, Any], flo
     return ranges
 
 
+def project_for_export_scope(project: dict[str, Any], payload: ExportRequest) -> tuple[dict[str, Any], str]:
+    scope = str(payload.export_scope or "full").strip().lower()
+    if scope not in {"selected_groups", "all_groups_separate"}:
+        return project, "full"
+    selected_ids = {str(item) for item in (payload.group_ids or []) if str(item)}
+    groups = [group for group in project.get("arrangement", {}).get("video", {}).get("groups", []) if isinstance(group, dict)]
+    if scope == "all_groups_separate":
+        selected = groups
+    else:
+        selected = [group for group in groups if str(group.get("id")) in selected_ids]
+    if not selected:
+        raise HTTPException(status_code=400, detail="No groups selected for export")
+    chunk_ids = {str(chunk_id) for group in selected for chunk_id in (group.get("chunk_ids") or [])}
+    scoped = copy.deepcopy(project)
+    scoped["chunks"] = [chunk for chunk in project.get("chunks", []) if str(chunk.get("id")) in chunk_ids]
+    scoped.setdefault("arrangement", {}).setdefault("video", {})["groups"] = selected
+    return scoped, scope
+
+
 def ffmpeg_visual_filter(width: int, height: int, fit: str) -> str:
     if str(fit or "cover").lower() == "contain":
         return f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
@@ -5615,10 +5708,33 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
 
 def export_project_with_settings(project: dict[str, Any], payload: ExportRequest | None = None) -> dict[str, Any]:
     request = payload or ExportRequest()
+    scoped_project, scope = project_for_export_scope(project, request)
+    if bool(request.separate_groups) or scope == "all_groups_separate":
+        results: list[dict[str, Any]] = []
+        groups = scoped_project.get("arrangement", {}).get("video", {}).get("groups", [])
+        for group in groups:
+            single_request = request.copy(update={"export_scope": "selected_groups", "group_ids": [str(group.get("id"))], "separate_groups": False})
+            single_project, _ = project_for_export_scope(project, single_request)
+            result = export_project_with_settings(single_project, single_request)
+            result["group_id"] = group.get("id")
+            result["group_title"] = group.get("title")
+            results.append(result)
+        summary = {"media_type": "batch", "format": request.video_format if request.export_type == "video" else request.audio_format, "files": results, "file_count": len(results), "export_scope": "all_groups_separate", "url": results[0].get("url") if results else ""}
+        project["export"] = summary
+        project.setdefault("exports", []).append(summary)
+        save_project(project)
+        return summary
     export_type = str(request.export_type or "audio").strip().lower()
     if export_type in {"video", "video_audio", "video_with_audio"}:
-        return export_video_file(project, request)
-    return export_audio_file(project, request)
+        result = export_video_file(scoped_project, request)
+    else:
+        result = export_audio_file(scoped_project, request)
+    if scope != "full":
+        result["export_scope"] = scope
+        project["export"] = result
+        project.setdefault("exports", []).append(result)
+        save_project(project)
+    return result
 
 
 def export_project(project: dict[str, Any]) -> dict[str, Any]:
