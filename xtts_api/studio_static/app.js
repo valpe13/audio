@@ -187,7 +187,7 @@ function syncBulkVideoButtonLabel() {
   button.textContent = `Generate all ${backend} videos`;
   button.title = enabled
     ? `Queue all missing group videos using the currently selected ${backend} workflow/backend.`
-    : `Image-to-video buttons are disabled; enable the ${backend} backend in Advanced ComfyUI first.`;
+    : `Image-to-video buttons are disabled; enable the ${backend} backend in Video settings first.`;
   button.setAttribute("aria-label", button.textContent);
 }
 

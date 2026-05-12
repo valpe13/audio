@@ -94,29 +94,13 @@
               <button id="saveTextBtn" type="button" class="secondary">Save text</button>
             </div>
           </div>
-          <div>
-            <h2>2. Voice / Music / Images</h2>
-            <label>Reference WAV path
-              <input id="referencePath" type="text" />
-            </label>
-            <label>Music path
-              <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
-            </label>
-            <details class="settingsSection xaiKeySettings" open>
-              <summary>Grok / xAI keys and AI helpers</summary>
-              <label>Grok / xAI API key
-                <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
+          <div class="projectSettingsStack">
+            <h2>2. Settings</h2>
+            <details class="settingsSection settingsGroup audioSettingsGroup" open>
+              <summary>Audio · TTS / voice / stress</summary>
+              <label>Reference WAV path
+                <input id="referencePath" type="text" />
               </label>
-              <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
-              <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
-              <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
-              <label>Grok stress model override
-                <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
-              </label>
-              <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
-            </details>
-            <details class="settingsSection ttsStressSettings">
-              <summary>TTS backend / Russian stress control</summary>
               <div class="grid two imageSettingsGrid">
                 <label>TTS backend
                   <select id="ttsBackend">
@@ -140,23 +124,35 @@
                 <label>Silero realism preset <input id="sileroRealismPreset" type="text" placeholder="sleep_safe" /></label>
                 <label class="inlineCheck"><input id="sileroRealismEnabled" type="checkbox" checked /> Enable Silero realism post-processing</label>
               </div>
+              <div class="sliders">
+                <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
+              </div>
               <p class="imageResolvedSettings">For strict Russian stress control, use the Silero backend and plus notation. XTTS/Fish-style neural backends may ignore acute marks; Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
             </details>
-            <div class="row wrap">
-              <label>Upload music <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
-              <button id="addMusicSourceBtn" type="button" class="secondary">Add audio source/clip from path</button>
-              <button id="saveSettingsBtn" type="button" class="secondary">Save settings</button>
-            </div>
-            <div class="sliders">
-              <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
-              <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
-            </div>
-            <details class="settingsSection imageSimpleSettings" open aria-label="Image generation settings">
-              <summary>Image generation: RealVisXL or Grok</summary>
+
+            <details class="settingsSection settingsGroup musicSettingsGroup">
+              <summary>Music · library / mix</summary>
+              <label>Music path
+                <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
+              </label>
+              <div class="row wrap">
+                <label>Upload music <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
+                <button id="addMusicSourceBtn" type="button" class="secondary">Add audio source/clip from path</button>
+              </div>
+              <div class="sliders">
+                <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
+              </div>
+              <p class="imageResolvedSettings">Use the side Music library for multi-file sources and exact timeline placement; these controls keep project-level fallback path and default mix volume.</p>
+            </details>
+
+            <details class="settingsSection settingsGroup imageSettingsGroup" open aria-label="Image generation settings">
+              <summary>Image · Local / ComfyUI / Grok</summary>
+              <details class="settingsSubsection imageSimpleSettings" open>
+                <summary>Presets and shared image controls</summary>
               <div class="imageSimpleHead">
                 <div>
                   <h3>Картинки RealVisXL / Grok</h3>
-                  <p>Choose image provider in Advanced Image settings; presets keep common size/quality controls here.</p>
+                  <p>Choose the image provider below. Shared quality, orientation, and style stay here.</p>
                 </div>
                 <span class="realvisxlBadge">RealVisXL</span>
               </div>
@@ -187,22 +183,100 @@
                 </label>
               </div>
               <p id="imageResolvedSettings" class="imageResolvedSettings">RealVisXL · balanced · 896×1152 · 22 steps</p>
+              </details>
+              <details class="settingsSubsection imageSettings" open>
+                <summary>Provider / model</summary>
+                <div class="grid two imageSettingsGrid">
+                  <label>Provider
+                    <select id="imageProvider">
+                      <option value="placeholder">placeholder</option>
+                      <option value="comfyui">comfyui</option>
+                      <option value="grok">grok / xAI image API</option>
+                    </select>
+                  </label>
+                  <label>Model
+                    <select id="imageModel">
+                      <option value="sdxl">sdxl</option>
+                      <option value="realvisxl">realvisxl</option>
+                      <option value="juggernautxl">juggernautxl</option>
+                      <option value="dreamshaperxl">dreamshaperxl</option>
+                      <option value="flux">flux</option>
+                      <option value="grok">grok</option>
+                      <option value="custom">custom</option>
+                    </select>
+                  </label>
+                  <label>Seed <input id="imageSeed" type="number" step="1" value="0" /></label>
+                  <label>Negative preset <input id="imageNegativePreset" type="text" placeholder="default" /></label>
+                  <label>Workflow mode
+                    <select id="imageWorkflowMode">
+                      <option value="generated">generated</option>
+                      <option value="template">template</option>
+                      <option value="disabled">disabled</option>
+                    </select>
+                  </label>
+                  <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
+                  <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
+                </div>
+                <p id="imageFluxWorkflowNote" class="imageFluxWorkflowNote" hidden>FLUX generated workflow is not supported yet. Use template mode until the next implementation stage.</p>
+              </details>
+              <details class="settingsSubsection localImageSettings">
+                <summary>Local / ComfyUI image backend</summary>
+                <div class="grid two imageSettingsGrid">
+                  <label>Model checkpoint filename <input id="imageModelCheckpoint" type="text" placeholder="RealVisXL_V5.0_fp16.safetensors" /></label>
+                  <label>Steps <input id="imageSteps" type="number" min="1" max="150" step="1" value="28" /></label>
+                  <label>CFG <input id="imageCfg" type="number" min="0" max="30" step="0.1" value="6.5" /></label>
+                  <label>Sampler <input id="imageSampler" type="text" placeholder="dpmpp_2m_sde" /></label>
+                  <label>Scheduler <input id="imageScheduler" type="text" placeholder="karras" /></label>
+                  <label>Workflow path <input id="imageWorkflowPath" type="text" placeholder="optional workflow JSON path" /></label>
+                  <label>ComfyUI URL <input id="imageComfyuiUrl" type="text" placeholder="http://127.0.0.1:8188" /></label>
+                  <label>ComfyUI path <input id="imageComfyuiPath" type="text" placeholder="ComfyUI_windows_portable" /></label>
+                  <label>ComfyUI python <input id="imageComfyuiPython" type="text" placeholder="optional python executable" /></label>
+                  <label>ComfyUI launch command <input id="imageComfyuiLaunchCmd" type="text" placeholder="optional backend autostart command" /></label>
+                  <label class="inlineCheck"><input id="imageComfyuiAutostart" type="checkbox" /> Autostart ComfyUI</label>
+                </div>
+                <div class="comfyuiStatusPanel">
+                  <div class="row wrap">
+                    <button id="checkComfyuiBtn" type="button" class="secondary">Check ComfyUI</button>
+                    <span id="comfyuiStatusBadge" class="comfyuiStatusBadge unknown">ComfyUI: not checked</span>
+                  </div>
+                  <div id="comfyuiStatusLine" class="comfyuiStatusLine">Use Check ComfyUI to query /api/comfyui/status.</div>
+                </div>
+              </details>
+              <details class="settingsSubsection xaiKeySettings" open>
+                <summary>Grok / xAI image and AI helpers</summary>
+                <div class="grid two imageSettingsGrid">
+                  <label>Grok / xAI API key
+                    <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
+                  </label>
+                  <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
+                  <label>Grok stress model override
+                    <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
+                  </label>
+                  <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
+                  <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
+                  <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
+                </div>
+                <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
+              </details>
             </details>
-            <details class="settingsSection videoI2vSettings" open aria-label="Video animation backend settings">
-              <summary>Video generation backend and quality</summary>
-              <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
-              <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
-              <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
-              <label class="qualitySliderLabel">Video quality
-                <input id="videoI2vQualityPreset" type="range" min="0" max="2" step="1" value="1" />
-                <span id="videoI2vQualityLabel">Баланс</span>
-              </label>
-              <div class="qualitySegments" aria-label="SVD quality presets">
-                <button type="button" class="secondary videoI2vQualityButton" data-quality="fast">Быстро</button>
-                <button type="button" class="secondary videoI2vQualityButton active" data-quality="balanced">Баланс</button>
-                <button type="button" class="secondary videoI2vQualityButton" data-quality="quality">Качество</button>
-              </div>
-              <p id="videoI2vResolvedSettings" class="imageResolvedSettings">SVD-XT · balanced · 25 frames · 6 fps · 20 steps</p>
+
+            <details class="settingsSection settingsGroup videoSettingsGroup" open aria-label="Video animation backend settings">
+              <summary>Video · Local backends / Grok Imagine Video</summary>
+              <details class="settingsSubsection videoI2vSettings" open>
+                <summary>Video backend and quality</summary>
+                <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
+                <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
+                <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
+                <label class="qualitySliderLabel">Video quality
+                  <input id="videoI2vQualityPreset" type="range" min="0" max="2" step="1" value="1" />
+                  <span id="videoI2vQualityLabel">Баланс</span>
+                </label>
+                <div class="qualitySegments" aria-label="SVD quality presets">
+                  <button type="button" class="secondary videoI2vQualityButton" data-quality="fast">Быстро</button>
+                  <button type="button" class="secondary videoI2vQualityButton active" data-quality="balanced">Баланс</button>
+                  <button type="button" class="secondary videoI2vQualityButton" data-quality="quality">Качество</button>
+                </div>
+                <p id="videoI2vResolvedSettings" class="imageResolvedSettings">SVD-XT · balanced · 25 frames · 6 fps · 20 steps</p>
               <div class="grid two imageSettingsGrid">
                 <label>Motion style
                   <select id="videoI2vMotionStyle">
@@ -237,6 +311,7 @@
                 <label>Sampler <input id="videoI2vSampler" type="text" placeholder="euler" /></label>
                 <label>Scheduler <input id="videoI2vScheduler" type="text" placeholder="normal" /></label>
               </div>
+              </details>
               <details id="videoI2vGrokSettings" class="videoI2vGrokSettings" open>
                 <summary>Grok Imagine Video settings</summary>
                 <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
@@ -272,60 +347,9 @@
               <p class="imageResolvedSettings">Practical quality path: keep SVD-XT for mass production and RealVisXL image fidelity; use SD1.5 AnimateDiff only for experiments where prompt/object motion matters more than matching the source image. Use generated_hotshotxl only after checking /api/comfyui/animatediff-sdxl/diagnostics: it needs AnimateDiff-Evolved, VideoHelperSuite, RealVisXL/another SDXL checkpoint, and an SDXL-compatible motion model such as HotshotXL under ComfyUI/models/animatediff_models.</p>
               <p class="imageResolvedSettings">Grok Imagine Video uses /api/xai/imagine-video/diagnostics for setup checks. Confirmed settings are model grok-imagine-video, aspect ratios 16:9/9:16, and resolutions 480p/720p; 1080p is not exposed until official docs confirm it. Prompt-only looping is not guaranteed, so Grok videos default to ffmpeg ping-pong post-processing after download; use crossfade only when forward motion is more important than seam reliability.</p>
             </details>
-            <details class="settingsSection imageSettings">
-              <summary>Advanced Image / ComfyUI / Grok provider</summary>
-              <div class="grid two imageSettingsGrid">
-                <label>Provider
-                  <select id="imageProvider">
-                    <option value="placeholder">placeholder</option>
-                    <option value="comfyui">comfyui</option>
-                    <option value="grok">grok / xAI image API</option>
-                  </select>
-                </label>
-                <label>Model
-                  <select id="imageModel">
-                    <option value="sdxl">sdxl</option>
-                    <option value="realvisxl">realvisxl</option>
-                    <option value="juggernautxl">juggernautxl</option>
-                    <option value="dreamshaperxl">dreamshaperxl</option>
-                    <option value="flux">flux</option>
-                    <option value="grok">grok</option>
-                    <option value="custom">custom</option>
-                  </select>
-                </label>
-                <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
-                <label>Seed <input id="imageSeed" type="number" step="1" value="0" /></label>
-                <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
-                <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
-                <label>Negative preset <input id="imageNegativePreset" type="text" placeholder="default" /></label>
-                <label>Workflow mode
-                  <select id="imageWorkflowMode">
-                    <option value="generated">generated</option>
-                    <option value="template">template</option>
-                    <option value="disabled">disabled</option>
-                  </select>
-                </label>
-                <label>Model checkpoint filename <input id="imageModelCheckpoint" type="text" placeholder="RealVisXL_V5.0_fp16.safetensors" /></label>
-                <label>Steps <input id="imageSteps" type="number" min="1" max="150" step="1" value="28" /></label>
-                <label>CFG <input id="imageCfg" type="number" min="0" max="30" step="0.1" value="6.5" /></label>
-                <label>Sampler <input id="imageSampler" type="text" placeholder="dpmpp_2m_sde" /></label>
-                <label>Scheduler <input id="imageScheduler" type="text" placeholder="karras" /></label>
-              </div>
-              <p id="imageFluxWorkflowNote" class="imageFluxWorkflowNote" hidden>FLUX generated workflow is not supported yet. Use template mode until the next implementation stage.</p>
-              <label>ComfyUI URL <input id="imageComfyuiUrl" type="text" placeholder="http://127.0.0.1:8188" /></label>
-              <label>ComfyUI path <input id="imageComfyuiPath" type="text" placeholder="ComfyUI_windows_portable" /></label>
-              <label>ComfyUI python <input id="imageComfyuiPython" type="text" placeholder="optional python executable" /></label>
-              <label>ComfyUI launch command <input id="imageComfyuiLaunchCmd" type="text" placeholder="optional backend autostart command" /></label>
-              <label class="inlineCheck"><input id="imageComfyuiAutostart" type="checkbox" /> Autostart ComfyUI</label>
-              <label>Workflow path <input id="imageWorkflowPath" type="text" placeholder="optional workflow JSON path" /></label>
-              <div class="comfyuiStatusPanel">
-                <div class="row wrap">
-                  <button id="checkComfyuiBtn" type="button" class="secondary">Check ComfyUI</button>
-                  <span id="comfyuiStatusBadge" class="comfyuiStatusBadge unknown">ComfyUI: not checked</span>
-                </div>
-                <div id="comfyuiStatusLine" class="comfyuiStatusLine">Use Check ComfyUI to query /api/comfyui/status.</div>
-              </div>
-            </details>
+            <div class="row wrap settingsActions">
+              <button id="saveSettingsBtn" type="button" class="secondary">Save settings</button>
+            </div>
           </div>
         </section>
 

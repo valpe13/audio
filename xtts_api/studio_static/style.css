@@ -272,9 +272,21 @@ textarea { min-height: 220px; resize: vertical; line-height: 1.45; }
 .originalTextDetails textarea { min-height: 70px; background: #0c1018; color: #c8d0dd; }
 input[type="number"] { width: 7rem; }
 input[type="range"] { vertical-align: middle; width: 12rem; }
+.projectSettingsStack { display: grid; gap: .65rem; }
 .settingsSection { margin: .65rem 0; padding: .72rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
 .settingsSection > summary { cursor: pointer; color: #86ffd7; font-weight: 900; margin: -.15rem 0 .55rem; }
 .settingsSection:not([open]) > summary { margin-bottom: 0; }
+.settingsGroup { margin: 0; border-radius: 16px; }
+.settingsGroup > summary { font-size: 1rem; letter-spacing: .01em; }
+.settingsSubsection { margin: .65rem 0; padding: .7rem; border: 1px solid #293147; border-radius: 12px; background: rgba(15, 19, 29, .72); }
+.settingsSubsection > summary { cursor: pointer; color: #ffdda1; font-weight: 900; margin: -.1rem 0 .55rem; }
+.settingsSubsection:not([open]) > summary { margin-bottom: 0; }
+.audioSettingsGroup { border-color: #446f5a; }
+.musicSettingsGroup { border-color: #7b5fa6; }
+.imageSettingsGroup { border-color: #2d6b8c; }
+.videoSettingsGroup { border-color: #624c19; }
+.localImageSettings { border-color: #293147; }
+.settingsActions { justify-content: flex-end; margin-top: .35rem; }
 .xaiKeySettings { background: #0f131d; }
 .inlineCheck { display: inline-flex; align-items: center; gap: .45rem; margin: .25rem 0; color: #ffdda1; }
 .xaiApiKeyHint { font-size: .82rem; font-family: Consolas, monospace; }
