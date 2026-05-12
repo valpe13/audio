@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-cleanup-stage2-v1" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-collapse-stress-installer-v1" />
   </head>
   <body>
     <header>
@@ -74,37 +74,12 @@
           </div>
           <div class="projectSettingsStack">
             <h2>2. Настройки</h2>
-            <details class="settingsSection settingsGroup splitSettingsGroup" open>
+            <details class="settingsSection settingsGroup splitSettingsGroup">
               <summary>Разделение текста · чанки и группы</summary>
               <div class="grid two imageSettingsGrid">
                 <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
                 <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
                 <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
-              </div>
-              <div class="row wrap settingsActions">
-                <button id="splitBtn" type="button">Разделить на чанки</button>
-                <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
-                <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
-                <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
-                <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
-                <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
-              </div>
-              <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
-              <p class="imageResolvedSettings">Настройки разделения используются при первичном создании чанков. Группы можно создать автоматически через Grok или вручную, затем редактировать на экране «Группы».</p>
-            </details>
-
-            <details class="settingsSection settingsGroup audioSettingsGroup">
-              <summary>Аудио · TTS / голос / ударения</summary>
-              <label>Reference WAV path
-                <input id="referencePath" type="text" />
-              </label>
-              <div class="grid two imageSettingsGrid">
-                <label>TTS backend
-                  <select id="ttsBackend">
-                    <option value="xtts">XTTS v2 (default voice clone, weak stress control)</option>
-                    <option value="silero">Silero RU API (stress-aware + notation)</option>
-                  </select>
-                </label>
                 <label>Stress mark style
                   <select id="ttsStressMarkStyle">
                     <option value="acute">acute: молоко́</option>
@@ -115,6 +90,35 @@
                 </label>
                 <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Enable pronunciation dictionary/stress preprocessing</label>
                 <label>Dictionary path <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
+                <label>Grok stress model override
+                  <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
+                </label>
+                <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
+              </div>
+              <div class="row wrap settingsActions">
+                <button id="splitBtn" type="button">Разделить на чанки</button>
+                <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
+                <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
+                <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
+                <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
+                <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
+              </div>
+              <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
+              <p class="imageResolvedSettings">Настройки разделения используются при первичном создании чанков. Группы можно создать автоматически через Grok или вручную, затем редактировать на экране «Группы». Для строгого контроля русских ударений используйте Silero backend и plus notation; XTTS/Fish-style neural backends may ignore acute marks. Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
+            </details>
+
+            <details class="settingsSection settingsGroup audioSettingsGroup">
+              <summary>Аудио · TTS / голос</summary>
+              <label>Reference WAV path
+                <input id="referencePath" type="text" />
+              </label>
+              <div class="grid two imageSettingsGrid">
+                <label>TTS backend
+                  <select id="ttsBackend">
+                    <option value="xtts">XTTS v2 (default voice clone, weak stress control)</option>
+                    <option value="silero">Silero RU API (stress-aware + notation)</option>
+                  </select>
+                </label>
                 <label>Silero API URL <input id="sileroApiUrl" type="text" placeholder="http://127.0.0.1:7866" /></label>
                 <label>Silero speaker <input id="sileroSpeaker" type="text" placeholder="baya" /></label>
                 <label>Silero sample rate <input id="sileroSampleRate" type="number" min="8000" max="96000" step="1000" value="48000" /></label>
@@ -124,7 +128,6 @@
               <div class="sliders">
                 <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
               </div>
-              <p class="imageResolvedSettings">For strict Russian stress control, use the Silero backend and plus notation. XTTS/Fish-style neural backends may ignore acute marks; Grok only post-processes already-created chunks after the normal split and cannot change chunk boundaries; keep the result editable and prefer dictionary/manual overrides for critical words.</p>
             </details>
 
             <details class="settingsSection settingsGroup musicSettingsGroup">
@@ -155,7 +158,7 @@
 
             <details class="settingsSection settingsGroup imageSettingsGroup" aria-label="Настройки генерации картинок">
               <summary>Картинки · Local / ComfyUI / Grok</summary>
-              <details class="settingsSubsection imageSimpleSettings" open>
+              <details class="settingsSubsection imageSimpleSettings">
                 <summary>Presets and shared image controls</summary>
               <div class="imageSimpleHead">
                 <div>
@@ -192,7 +195,7 @@
               </div>
               <p id="imageResolvedSettings" class="imageResolvedSettings">RealVisXL · balanced · 896×1152 · 22 steps</p>
               </details>
-              <details class="settingsSubsection imageSettings" open>
+              <details class="settingsSubsection imageSettings">
                 <summary>Провайдер / модель</summary>
                 <div class="grid two imageSettingsGrid">
                   <label>Провайдер
@@ -250,19 +253,15 @@
                   <div id="comfyuiStatusLine" class="comfyuiStatusLine">Use Check ComfyUI to query /api/comfyui/status.</div>
                 </div>
               </details>
-              <details class="settingsSubsection xaiKeySettings" open>
+              <details class="settingsSubsection xaiKeySettings">
                 <summary>Grok / xAI image and AI helpers</summary>
                 <div class="grid two imageSettingsGrid">
                   <label>Grok / xAI API key
                     <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
                   </label>
                   <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
-                  <label>Grok stress model override
-                    <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
-                  </label>
                   <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
                   <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
-                  <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
                 </div>
                 <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
               </details>
@@ -270,7 +269,7 @@
 
             <details class="settingsSection settingsGroup videoSettingsGroup" aria-label="Настройки видео-анимации">
               <summary>Видео · локальные бэкенды / Grok Imagine Video</summary>
-              <details class="settingsSubsection videoI2vSettings" open>
+              <details class="settingsSubsection videoI2vSettings">
                 <summary>Video backend and quality</summary>
                 <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
                 <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
@@ -320,7 +319,7 @@
                 <label>Scheduler <input id="videoI2vScheduler" type="text" placeholder="normal" /></label>
               </div>
               </details>
-              <details id="videoI2vGrokSettings" class="videoI2vGrokSettings" open>
+              <details id="videoI2vGrokSettings" class="videoI2vGrokSettings">
                 <summary>Grok Imagine Video settings</summary>
                 <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
                 <p class="videoI2vGrokWarning">Hosted xAI image-to-video backend. Queuing generation may make a paid API call. Use diagnostics before bulk generation; this UI never runs generation until you press group video buttons.</p>
@@ -361,7 +360,7 @@
           </div>
         </section>
 
-        <details class="panel collapsiblePanel" open>
+        <details class="panel collapsiblePanel">
           <summary><h2>3. Действия проекта</h2></summary>
           <div class="row wrap">
             <button id="generateAllBtn" type="button">Сгенерировать отсутствующие чанки</button>
@@ -372,7 +371,7 @@
           <p class="chunkOverviewHint">Выберите чанк в левой панели, чтобы редактировать текст, pause_after, генерацию и выбранную аудиоверсию. Основной таймлайн находится в нижней панели.</p>
         </details>
 
-        <details class="panel collapsiblePanel" open>
+        <details class="panel collapsiblePanel">
           <summary><h2>4. Очередь генерации</h2></summary>
           <div class="row between wrap">
             <span></span>
@@ -386,7 +385,7 @@
           <div id="queueList" class="queueList">No tasks.</div>
         </details>
 
-        <details class="panel collapsiblePanel" open>
+        <details class="panel collapsiblePanel">
           <summary><h2>5. Экспорт</h2></summary>
           <div class="row wrap exportActions"><button id="exportBtn" type="button">Поставить экспорт в очередь</button></div>
           <div class="exportSettings grid two">
@@ -555,9 +554,9 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
-    <script src="/studio/app.js?v=2026-05-12-studio-cleanup-stage2-v1"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-12-collapse-stress-installer-v1"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-collapse-stress-installer-v1"></script>
+    <script src="/studio/app.js?v=2026-05-12-collapse-stress-installer-v1"></script>
   </body>
 </html>
 

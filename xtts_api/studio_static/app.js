@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-studio-cleanup-stage2-v1";
+﻿const FRONTEND_BUILD = "2026-05-12-collapse-stress-installer-v1";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -2557,7 +2557,7 @@ function renderGroupDetail(group, { force = false } = {}) {
           <button type="button" class="saveGroupPromptsBtn secondary">Save group</button>
         </div>
       </div>
-      <details class="groupChunkMembership" open>
+      <details class="groupChunkMembership">
         <summary>Chunks in this group (editable)</summary>
         <div class="chunkPickGrid">${renderChunkMultiSelect(group.chunk_ids || [])}</div>
       </details>

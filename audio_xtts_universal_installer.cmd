@@ -104,9 +104,9 @@ echo   --with-video          Совместимость со старым зап
 echo   --skip-assets         Пропустить XTTS release assets и предзагрузку install_models.cmd.
 echo   --help                Показать эту справку.
 echo.
-echo При запуске из git-клона установщик пробует безопасно выполнить git pull --ff-only,
-echo только если есть upstream и нет локальных изменений. Если изменения найдены,
-echo автообновление пропускается без перезаписи файлов.
+echo При запуске из git-клона установщик пробует безопасно выполнить git pull --ff-only.
+echo Если git pull недоступен или пропущен из-за локальных/неотслеживаемых файлов,
+echo проектные файлы синхронизируются из GitHub ZIP с сохранением пользовательских путей.
 echo Базовый ComfyUI portable проверяется и ремонтируется автоматически; сломанная
 echo папка ComfyUI_windows_portable переименовывается в backup установщиком ComfyUI.
 echo По умолчанию установщик также скачивает image/video модели и доп. ресурсы ComfyUI.
@@ -155,15 +155,16 @@ if exist "%APP_DIR%\install_models.cmd" (
   if exist "%APP_DIR%\.git" (
     set "GIT_CHECKOUT=1"
     call :safe_git_update "%APP_DIR%"
-    if errorlevel 2 exit /b 1
-    if not errorlevel 1 (
+    set "GIT_UPDATE_RESULT=%ERRORLEVEL%"
+    if "%GIT_UPDATE_RESULT%"=="2" exit /b 1
+    if "%GIT_UPDATE_RESULT%"=="0" (
       set "UPDATED_PROJECT=1"
     ) else (
       echo ПРЕДУПРЕЖДЕНИЕ: Git-обновление недоступно или пропущено; продолжаю установку/ремонт с существующими файлами проекта.
       echo Код проекта не был обновлён. Зависимости, ComfyUI и модели будут проверены без перезаписи локальных файлов через git.
     )
   )
-  if not defined UPDATED_PROJECT if not defined GIT_CHECKOUT call :refresh_existing_project_from_zip
+  if not defined UPDATED_PROJECT call :refresh_existing_project_from_zip
   if errorlevel 1 exit /b 1
   if exist "%CURRENT_INSTALLER%" (
     if /i not "%CURRENT_INSTALLER%"=="%CD%\%APP_DIR%\audio_xtts_universal_installer.cmd" copy /y "%CURRENT_INSTALLER%" "%APP_DIR%\audio_xtts_universal_installer.cmd" >nul
@@ -195,8 +196,8 @@ echo ОШИБКА: Не удалось найти распакованную п�
 exit /b 1
 
 :refresh_existing_project_from_zip
-echo Обновляю существующую папку проекта из GitHub ZIP, потому что git-обновление недоступно...
-echo Локальные пути сохраняются при обновлении из ZIP.
+echo Синхронизирую существующую папку проекта из GitHub ZIP, потому что git pull недоступен или пропущен...
+echo Локальные пользовательские пути сохраняются; проектные файлы обновляются из GitHub ZIP.
 set "ZIP_PATH=%TEMP%\audio-main.zip"
 set "UNZIP_DIR=%TEMP%\audio-main-unzip"
 if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%"
