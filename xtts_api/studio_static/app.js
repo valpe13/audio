@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-group-subtitle-timeline-fix";
+﻿const FRONTEND_BUILD = "2026-05-13-group-preview-playhead-fix";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -2639,6 +2639,33 @@ function groupMediaUrl(item) {
   return item.type === "video" ? `/api/video?path=${encodeURIComponent(raw)}` : `/api/image?path=${encodeURIComponent(raw)}`;
 }
 
+function hexToRgba(hex, opacity = 1) {
+  const value = String(hex || "#000000").replace("#", "").trim();
+  const full = value.length === 3 ? value.split("").map((char) => char + char).join("") : value.padEnd(6, "0").slice(0, 6);
+  const int = Number.parseInt(full, 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r}, ${g}, ${b}, ${clamp(opacity, 0, 1)})`;
+}
+
+function groupSubtitleOverlayHtml(subtitles = []) {
+  const blocks = (Array.isArray(subtitles) ? subtitles : []).filter((block) => block?.enabled !== false && String(block?.text || "").trim());
+  if (!blocks.length) return "";
+  return `<div class="groupMediaPreviewSubtitles" aria-label="Активные субтитры">${blocks.map((block) => {
+    const position = ["top", "center", "bottom"].includes(block.position) ? block.position : "bottom";
+    const outline = clamp(block.outline ?? 2, 0, 12);
+    const style = [
+      `font-family:${String(block.font_family || "Arial").replace(/[;{}]/g, "")}, sans-serif`,
+      `font-size:${clamp(block.font_size || 42, 8, 160)}px`,
+      `color:${String(block.color || "#ffffff").replace(/[;{}]/g, "")}`,
+      `background:${hexToRgba(block.background || "#000000", block.background_opacity ?? 0.45)}`,
+      `text-shadow:${outline ? `0 0 ${outline}px #000, 0 0 ${Math.max(1, outline * 2)}px #000` : "none"}`,
+    ].join(";");
+    return `<div class="groupMediaPreviewSubtitle pos-${escapeHtml(position)}"><span style="${escapeHtml(style)}">${escapeHtml(block.text)}</span></div>`;
+  }).join("")}</div>`;
+}
+
 function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   const list = card?.querySelector(".groupMediaList");
   if (!list) return null;
@@ -2667,20 +2694,60 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   return row;
 }
 
+function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk = null, time = 0, mode = "manual" } = {}) {
+  if (!card) return;
+  const preview = card.querySelector(".groupMediaPreview");
+  if (!preview) return;
+  const isPlayback = mode === "playback";
+  if (item) state.groupMedia.selectedId = item.id || state.groupMedia.selectedId || "";
+  const selectedId = item?.id || (!isPlayback ? state.groupMedia.selectedId : "");
+  card.querySelectorAll(".groupMediaThumb,.groupMediaTimelineBlock").forEach((el) => el.classList.toggle("selected", Boolean(selectedId) && el.dataset.mediaId === selectedId));
+  const url = item ? groupMediaUrl(item) : "";
+  const overlay = groupSubtitleOverlayHtml(subtitles);
+  const timeLabel = `Позиция ${formatTime(time)}`;
+  const chunkLabel = chunk ? ` · ${chunk.label || "Чанк"}${chunk.audio_url ? " · аудио" : " · аудио нет"}` : "";
+  const syncPlaybackVideo = () => {
+    const video = preview.querySelector("video");
+    if (!video || !isPlayback || !item) return;
+    const offset = Math.max(0, Number(time || 0) - Number(item.start_offset_sec || 0));
+    try { if (Math.abs((video.currentTime || 0) - offset) > 0.2) video.currentTime = Math.min(Math.max(0, offset), Math.max(0.1, video.duration || offset || 0.1)); } catch (_) { /* best-effort preview seek */ }
+    video.play?.().catch?.(() => {});
+  };
+  if (!item || !url) {
+    const previewKey = `empty:${mode}:${(Array.isArray(subtitles) ? subtitles : []).map((block) => `${block.id || ""}:${block.text || ""}`).join("|")}`;
+    if (preview.dataset.previewKey !== previewKey) {
+      preview.innerHTML = `<div class="groupMediaPreviewStage empty"><div class="groupMediaPreviewEmpty">${isPlayback ? "На текущей позиции таймлайна нет активного медиа." : "Выберите миниатюру или блок на таймлайне."}<small></small></div>${overlay}</div>`;
+      preview.dataset.previewKey = previewKey;
+    }
+    const small = preview.querySelector(".groupMediaPreviewEmpty small");
+    if (small) small.textContent = timeLabel + chunkLabel;
+    return;
+  }
+  const fit = ["cover", "contain", "fill"].includes(item.fit) ? item.fit : "contain";
+  const label = item.label || item.path || item.url || (item.type === "video" ? "Видео" : "Картинка");
+  const previewKey = `${item.type}:${item.id || ""}:${url}:${fit}:${mode}:${(Array.isArray(subtitles) ? subtitles : []).map((block) => `${block.id || ""}:${block.text || ""}:${block.position || ""}:${block.font_size || ""}:${block.background_opacity ?? ""}`).join("|")}`;
+  if (preview.dataset.previewKey === previewKey) {
+    const small = preview.querySelector(":scope > small");
+    if (small) small.textContent = `${label} · ${timeLabel + chunkLabel}`;
+    syncPlaybackVideo();
+    return;
+  }
+  const media = item.type === "video"
+    ? `<video src="${escapeHtml(url)}" ${isPlayback ? "" : "controls"} muted loop playsinline data-preview-media-id="${escapeHtml(item.id || "")}" style="object-fit:${fit}"></video>`
+    : `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="object-fit:${fit}" />`;
+  preview.innerHTML = `<div class="groupMediaPreviewStage">${media}${overlay}</div><small>${escapeHtml(label)} · ${escapeHtml(timeLabel + chunkLabel)}</small>`;
+  preview.dataset.previewKey = previewKey;
+  syncPlaybackVideo();
+}
+
 function selectGroupMediaPreview(card, item) {
   if (!card || !item) return;
   state.groupMedia.selectedId = item.id || "";
-  card.querySelectorAll(".groupMediaThumb,.groupMediaTimelineBlock").forEach((el) => el.classList.toggle("selected", el.dataset.mediaId === state.groupMedia.selectedId));
-  const preview = card.querySelector(".groupMediaPreview");
-  const url = groupMediaUrl(item);
-  if (!preview || !url) return;
-  preview.innerHTML = item.type === "video"
-    ? `<video src="${escapeHtml(url)}" controls muted loop playsinline></video><small>${escapeHtml(item.label || item.path || item.url || "Video")}</small>`
-    : `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.label || "Image preview")}" /><small>${escapeHtml(item.label || item.path || item.url || "Image")}</small>`;
+  renderGroupTimelinePreview(card, { item, subtitles: [], chunk: null, time: Number(item.start_offset_sec || 0), mode: "manual" });
 }
 
 function playGroupMediaPreview(card, item, localTimeSec = 0) {
-  selectGroupMediaPreview(card, item);
+  renderGroupTimelinePreview(card, { item, subtitles: [], chunk: null, time: localTimeSec, mode: "playback" });
   const video = card?.querySelector?.(".groupMediaPreview video");
   if (!video) return;
   const offset = Math.max(0, Number(localTimeSec || 0) - Number(item?.start_offset_sec || 0));
@@ -2986,8 +3053,9 @@ function renderGroupMediaTimeline(card, group) {
   try {
     timeline.bind(host, card, group, renderFromRows, {
       chunks,
+      subtitleBlocks: subtitle ? subtitle.blocksFromRows(card, group.duration, groupSubtitleDefaultsFromCard(card)) : [],
       onSelect: (item) => selectGroupMediaPreview(card, item),
-      onPreviewTime: (item, localTimeSec) => playGroupMediaPreview(card, item, localTimeSec),
+      onPreviewState: ({ item, subtitles, chunk, time }) => renderGroupTimelinePreview(card, { item, subtitles, chunk, time, mode: "playback" }),
       onPreviewChunkTime: (chunk, localTimeSec) => {
         if (!chunk?.audio_url) {
           stopChunkAudio();

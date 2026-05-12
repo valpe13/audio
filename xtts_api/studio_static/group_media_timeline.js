@@ -32,6 +32,19 @@ window.XTTSStudio = window.XTTSStudio || {};
     return Math.max(0.25, Number(groupDuration || 0) - Number(item?.start_offset_sec || 0));
   }
 
+  function activeSubtitleBlocksAt(blocks, timeSec, groupDuration) {
+    const time = clamp(timeSec, 0, Math.max(0.25, Number(groupDuration || 0)));
+    const subtitle = namespace.GroupSubtitleTimeline;
+    return (Array.isArray(blocks) ? blocks : [])
+      .map((block, index) => subtitle?.normalizeBlock?.(block, index, groupDuration, {}) || block)
+      .filter((block) => {
+        if (!block || block.enabled === false) return false;
+        const start = clamp(block.start_offset_sec ?? block.start ?? 0, 0, groupDuration);
+        const end = start + Math.max(0.05, Number(block.duration_sec ?? block.duration ?? 0.05) || 0.05);
+        return time >= start && time < end;
+      });
+  }
+
   function normalizedItemsFromRows(card, groupDuration) {
     return [...card.querySelectorAll(".groupMediaItem")].map((row, index) => {
       const value = (field) => row.querySelector(`[data-media-field='${field}']`)?.value || "";
@@ -148,6 +161,7 @@ window.XTTSStudio = window.XTTSStudio || {};
         return time >= start && time < end;
       }) || null;
     };
+    const activeSubtitlesAt = (timeSec) => activeSubtitleBlocksAt(callbacks.subtitleBlocks, timeSec, duration);
     const setPlayhead = (timeSec) => {
       const time = clamp(timeSec, 0, duration);
       const slider = host.querySelector(".groupMediaPlayheadSlider");
@@ -155,8 +169,11 @@ window.XTTSStudio = window.XTTSStudio || {};
       if (slider) slider.value = String(time);
       if (playhead) playhead.style.left = `${(time / Math.max(0.25, duration)) * 100}%`;
       const item = activeItemAt(time);
-      if (item) callbacks.onPreviewTime?.(item, time);
-      callbacks.onPreviewChunkTime?.(activeChunkAt(time), time);
+      const chunk = activeChunkAt(time);
+      const subtitles = activeSubtitlesAt(time);
+      callbacks.onPreviewState?.({ item, subtitles, chunk, time });
+      callbacks.onPreviewTime?.(item, time);
+      callbacks.onPreviewChunkTime?.(chunk, time);
       return time;
     };
     const stopPlayback = () => {
