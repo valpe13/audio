@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-group-media-workflow-v1";
+﻿const FRONTEND_BUILD = "2026-05-12-group-media-regressions-v2";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -667,6 +667,7 @@ function normalizeGroupMediaItems(group) {
     role: item.role || "main",
     start_offset_sec: clamp(item.start_offset_sec ?? 0, 0, 36000),
     duration_sec: clamp(item.duration_sec ?? 0, 0, 36000),
+    scheduled: item.scheduled !== false,
     fit: ["cover", "contain", "fill"].includes(item.fit) ? item.fit : "cover",
     volume: item.volume === undefined || item.volume === null ? undefined : clamp(item.volume, 0, 2),
     order: index,
@@ -2528,6 +2529,7 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   row.className = "groupMediaItem";
   row.dataset.mediaId = sourceItem.id || `media_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const duration = clamp(sourceItem.duration_sec || sourceItem.visual_duration_sec || sourceItem.default_duration_sec || Math.min(5, Math.max(0.5, groupDuration || 5)), 0.1, 36000);
+  const scheduled = sourceItem.scheduled === true;
   row.innerHTML = `
     <label>Type <select data-media-field="type"><option value="image" ${sourceItem.type !== "video" ? "selected" : ""}>image</option><option value="video" ${sourceItem.type === "video" ? "selected" : ""}>video</option></select></label>
     <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(rawPath)}" /></label>
@@ -2535,6 +2537,7 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
     <label>Role <input type="text" data-media-field="role" value="${escapeHtml(sourceItem.role || "main")}" /></label>
     <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(sourceItem.start_offset_sec || 0).toFixed(2)}" /></label>
     <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(duration).toFixed(2)}" /></label>
+    <label class="inlineCheck">Timeline <input type="checkbox" data-media-field="scheduled" ${scheduled ? "checked" : ""} /></label>
     <label>Fit <select data-media-field="fit"><option value="cover" ${sourceItem.fit !== "contain" && sourceItem.fit !== "fill" ? "selected" : ""}>cover</option><option value="contain" ${sourceItem.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${sourceItem.fit === "fill" ? "selected" : ""}>fill</option></select></label>
     <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
   `;
@@ -2619,13 +2622,14 @@ function renderGroupDetail(group, { force = false } = {}) {
       <label>Role <input type="text" data-media-field="role" value="${escapeHtml(item.role || "main")}" /></label>
       <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(item.start_offset_sec || 0).toFixed(2)}" /></label>
       <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(item.duration_sec || 0).toFixed(2)}" /></label>
+      <label class="inlineCheck">Timeline <input type="checkbox" data-media-field="scheduled" ${item.scheduled !== false ? "checked" : ""} /></label>
       <label>Fit <select data-media-field="fit"><option value="cover" ${item.fit === "cover" ? "selected" : ""}>cover</option><option value="contain" ${item.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${item.fit === "fill" ? "selected" : ""}>fill</option></select></label>
       <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
     </div>
   `).join("");
   const aiFieldsHtml = `
-    <details class="groupPromptEditor" open>
-      <summary class="groupPromptSummary"><h4>Editable group prompts</h4><span>click to collapse</span></summary>
+    <details class="groupPromptEditor">
+      <summary class="groupPromptSummary"><span class="summaryTitle">Editable group prompts</span><span>click to expand/collapse</span></summary>
       <div class="row between wrap">
         <span></span>
         <div class="row wrap">
@@ -2768,9 +2772,10 @@ function renderGroupMediaTimeline(card, group) {
   const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId });
   renderFromRows();
   timeline.bind(host, card, group, renderFromRows, {
-    onSelect: (item) => selectGroupMediaPreview(card, item),
-    onAdd: (item) => addGroupMediaRow(card, item, group.duration),
-    onChange: () => saveGroupPrompts(group.id, card),
+      onSelect: (item) => selectGroupMediaPreview(card, item),
+      onAdd: (item) => addGroupMediaRow(card, item, group.duration),
+      onReject: (message) => setStatus(message),
+      onChange: () => saveGroupPrompts(group.id, card),
   });
 }
 
@@ -2795,6 +2800,7 @@ async function saveGroupPrompts(groupId, card) {
       role: value("role") || "main",
       start_offset_sec: Number(value("start_offset_sec") || 0),
       duration_sec: Number(value("duration_sec") || 0),
+      scheduled: row.querySelector(`[data-media-field='scheduled']`)?.checked !== false,
       fit: value("fit") || "cover",
     };
     return item;
@@ -2816,9 +2822,21 @@ async function saveGroupPrompts(groupId, card) {
 
 function addGroupMediaItem(groupId) {
   const card = document.querySelector(`.groupDetailCard`);
-  addGroupMediaRow(card, { type: "image", label: "Manual media" }, selectedGroup()?.duration || 1);
+  addGroupMediaRow(card, { type: "image", label: "Manual media", scheduled: false }, selectedGroup()?.duration || 1);
   renderGroupMediaTimeline(card, selectedGroup() || { duration: 1 });
-  setStatus(`Added media row for ${groupId}; save group to persist`);
+  setStatus(`Added media library item for ${groupId}; drag it into the timeline to place it, then save group`);
+}
+
+function deleteSelectedGroupMedia() {
+  if (!state.groupMedia.selectedId || state.screenMode !== "group") return false;
+  const card = document.querySelector(".groupDetailCard");
+  const row = card?.querySelector?.(`.groupMediaItem[data-media-id="${CSS.escape(state.groupMedia.selectedId)}"]`);
+  if (!row) return false;
+  row.remove();
+  const group = selectedGroup();
+  if (group) saveGroupPrompts(group.id, card).catch((err) => setStatus(`Delete group media failed: ${err.message}`));
+  state.groupMedia.selectedId = "";
+  return true;
 }
 
 async function generateSelectedGroupPrompt(groupId) {
@@ -3890,6 +3908,12 @@ document.addEventListener("keydown", (event) => {
   const target = event.target;
   const editingText = target?.closest?.("input,textarea,select,[contenteditable='true']");
   if (editingText) return;
+  if ((event.key === "Delete" || event.key === "Backspace") && state.groupMedia.selectedId && state.screenMode === "group") {
+    if (deleteSelectedGroupMedia()) {
+      event.preventDefault();
+      return;
+    }
+  }
   if ((event.key === "Delete" || event.key === "Backspace") && state.musicClip.selectedId) {
     event.preventDefault();
     deleteSelectedMusicClip();

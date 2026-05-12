@@ -56,7 +56,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-group-media-workflow-v1"
+STUDIO_BUILD = "2026-05-12-group-media-regressions-v2"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -1190,6 +1190,7 @@ def normalize_group_media_item(raw_item: Any, idx: int = 0) -> dict[str, Any] | 
         "role": truncate_text(raw_item.get("role") or "main", 80),
         "start_offset_sec": normalize_group_media_duration(raw_item.get("start_offset_sec"), 0.0),
         "duration_sec": normalize_group_media_duration(raw_item.get("duration_sec"), 0.0),
+        "scheduled": bool(raw_item.get("scheduled", raw_item.get("timeline_enabled", raw_item.get("placed", True)))),
         "fit": str(raw_item.get("fit") or "cover").strip().lower(),
         "order": idx,
     }
@@ -1200,6 +1201,8 @@ def normalize_group_media_item(raw_item: Any, idx: int = 0) -> dict[str, Any] | 
             item["volume"] = round(max(0.0, min(2.0, float(raw_item.get("volume") or 0.0))), 3)
         except (TypeError, ValueError):
             item["volume"] = 1.0
+    if raw_item.get("source") is not None:
+        item["source"] = truncate_text(raw_item.get("source"), 80)
     return item
 
 
@@ -1215,9 +1218,11 @@ def normalize_group_media_items(raw_items: Any, group: dict[str, Any] | None = N
     image_meta = group.get("image") if isinstance(group.get("image"), dict) else {}
     video_meta = group.get("video") if isinstance(group.get("video"), dict) else {}
     if image_meta.get("path") or image_meta.get("url"):
-        legacy.append({"id": "legacy_image", "type": "image", "path": image_meta.get("path", ""), "url": image_meta.get("url", ""), "label": "Generated image", "role": "background", "duration_sec": 0.0})
+        image_key = str(image_meta.get("path") or image_meta.get("url") or "")
+        legacy.append({"id": f"legacy_image_{hashlib.sha1(image_key.encode('utf-8')).hexdigest()[:8]}", "type": "image", "path": image_meta.get("path", ""), "url": image_meta.get("url", ""), "label": "Generated image", "role": "library", "duration_sec": 0.0, "scheduled": False, "source": "generated"})
     if video_meta.get("path") or video_meta.get("url"):
-        legacy.append({"id": "legacy_video", "type": "video", "path": video_meta.get("path", ""), "url": video_meta.get("url", ""), "label": "Generated video", "role": "background", "duration_sec": float(video_meta.get("duration_sec") or 0.0)})
+        video_key = str(video_meta.get("path") or video_meta.get("url") or "")
+        legacy.append({"id": f"legacy_video_{hashlib.sha1(video_key.encode('utf-8')).hexdigest()[:8]}", "type": "video", "path": video_meta.get("path", ""), "url": video_meta.get("url", ""), "label": "Generated video", "role": "library", "duration_sec": float(video_meta.get("duration_sec") or 0.0), "scheduled": False, "source": "generated"})
     seen = {str(item.get("path") or item.get("url") or item.get("id")) for item in items}
     for raw_item in legacy:
         key = str(raw_item.get("path") or raw_item.get("url") or raw_item.get("id"))
@@ -1230,6 +1235,74 @@ def normalize_group_media_items(raw_items: Any, group: dict[str, Any] | None = N
     for idx, item in enumerate(items):
         item["order"] = idx
     return items
+
+
+def append_group_media_library_item(group: dict[str, Any], media_type: str, meta: dict[str, Any]) -> dict[str, Any] | None:
+    path = str(meta.get("path") or "").strip()
+    url = str(meta.get("url") or "").strip()
+    if not path and not url:
+        return None
+    group["media_items"] = normalize_group_media_items(group.get("media_items"), {})
+    key = path or url
+    existing = next((item for item in group["media_items"] if str(item.get("path") or item.get("url") or "") == key), None)
+    if existing:
+        existing.setdefault("scheduled", False)
+        existing.setdefault("source", "generated")
+        return existing
+    item = normalize_group_media_item({
+        "id": f"generated_{media_type}_{uuid.uuid4().hex[:10]}",
+        "type": media_type,
+        "path": path,
+        "url": url,
+        "label": f"Generated {media_type}",
+        "role": "library",
+        "duration_sec": float(meta.get("duration_sec") or 0.0),
+        "scheduled": False,
+        "source": "generated",
+    }, len(group["media_items"]))
+    if item:
+        group["media_items"].append(item)
+    return item
+
+
+def group_timeline_duration(project: dict[str, Any], group: dict[str, Any]) -> float:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    total = 0.0
+    for chunk_id in group.get("chunk_ids", []):
+        chunk = chunks_by_id.get(str(chunk_id))
+        if not chunk:
+            continue
+        total += max(0.0, float(chunk.get("duration_sec") or 0.0)) + max(0.0, float(chunk.get("pause_after") or 0.0))
+    return round(max(0.25, total), 3)
+
+
+def auto_place_generated_group_media(project: dict[str, Any], group_id: str, media_type: str) -> None:
+    group = find_video_group(project, group_id)
+    if not group:
+        return
+    duration = group_timeline_duration(project, group)
+    items = normalize_group_media_items(group.get("media_items"), group)
+    generated = [item for item in items if item.get("type") == media_type and item.get("source") == "generated"]
+    if not generated:
+        generated = [item for item in items if item.get("type") == media_type]
+    if not generated:
+        group["media_items"] = items
+        return
+    # Explicit bulk image/video generation is the only path that rewrites media scheduling.
+    # Single regeneration and manual uploads stay library-only to avoid destroying user edits.
+    step = duration / max(1, len(generated))
+    generated_ids = {item.get("id") for item in generated}
+    index_by_id = {item.get("id"): idx for idx, item in enumerate(generated)}
+    for item in items:
+        if item.get("id") in generated_ids:
+            slot = index_by_id.get(item.get("id"), 0)
+            item["scheduled"] = True
+            item["start_offset_sec"] = round(step * slot, 3)
+            item["duration_sec"] = round(duration - step * slot if len(generated) == 1 else step, 3)
+            item["role"] = item.get("role") or "main"
+        elif item.get("type") == media_type:
+            item["scheduled"] = False
+    group["media_items"] = items
 
 
 def compact_ai_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2508,7 +2581,7 @@ def load_project(project_id: str | None = None) -> dict[str, Any]:
         and project["settings"].get("image_comfyui_autostart") is False
     ):
         project["settings"]["image_comfyui_autostart"] = True
-    project.setdefault("chunks", [])
+    project["chunks"] = extract_legacy_chunks(project)
     normalize_arrangement(project)
     project.setdefault("status", {"busy": False, "message": "Ready", "updated_at": time.time()})
     for chunk in project.get("chunks", []):
@@ -6146,8 +6219,11 @@ def generate_group_images_endpoint(payload: GroupImagesRequest, project_id: str 
             continue
         task = enqueue_group_image_task(project, str(group.get("id")), force=payload.force)
         if task:
+            task.setdefault("payload", {})["bulk_auto_place"] = True
+            task.setdefault("params", task["payload"])["bulk_auto_place"] = True
+        if task:
             queued.append(task)
-    set_status(project, f"Queued {len(queued)} image generation task(s)", bool(queued))
+    set_status(project, f"Queued {len(queued)} image generation task(s); generated images will auto-place across each group timeline because this was an explicit bulk action", bool(queued))
     return {"queued_tasks": queued, "skipped": [], "skipped_count": 0, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 
@@ -6175,12 +6251,15 @@ def generate_group_videos_endpoint(payload: GroupVideosRequest, project_id: str 
             continue
         try:
             task = enqueue_group_video_task(project, group_id, force=payload.force)
+            if task:
+                task.setdefault("payload", {})["bulk_auto_place"] = True
+                task.setdefault("params", task["payload"])["bulk_auto_place"] = True
         except HTTPException as exc:
             skipped.append({"group_id": group_id, "reason": str(exc.detail)})
             continue
         if task:
             queued.append(task)
-    set_status(project, f"Queued {len(queued)} {video_i2v_backend_label(video_i2v_settings(project))} video generation task(s), skipped {len(skipped)}", bool(queued))
+    set_status(project, f"Queued {len(queued)} {video_i2v_backend_label(video_i2v_settings(project))} video generation task(s), skipped {len(skipped)}; generated videos will auto-place across each group timeline because this was an explicit bulk action", bool(queued))
     return {"queued_tasks": queued, "skipped": skipped, "skipped_count": len(skipped), "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 

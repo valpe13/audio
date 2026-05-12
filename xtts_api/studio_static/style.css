@@ -186,6 +186,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupPromptEditor { display: grid; gap: .7rem; padding: .8rem; border: 1px solid #1f5f52; border-radius: 12px; background: linear-gradient(135deg, rgba(20, 69, 61, .55), rgba(17, 23, 34, .9)); }
 .groupPromptSummary { display: flex; justify-content: space-between; gap: .65rem; cursor: pointer; color: #86ffd7; }
 .groupPromptSummary h4 { display: inline; }
+.groupPromptSummary .summaryTitle { font-weight: 700; color: #86ffd7; }
 .groupPromptSummary span { color: #aeb7c8; font-family: Consolas, monospace; }
 .groupPromptEditor h4 { margin: 0; color: #86ffd7; }
 .groupPromptGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
