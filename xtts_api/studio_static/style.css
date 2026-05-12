@@ -143,6 +143,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .mediaLibraryItem img, .mediaLibraryItem video { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border-radius: 10px; background: #050711; }
 .mediaLibraryItem strong { color: #86ffd7; overflow-wrap: anywhere; }
 .mediaLibraryItem small { color: #aeb7c8; font-family: Consolas, monospace; }
+.mediaLibraryActions { display: flex; justify-content: flex-end; }
+.mediaLibraryPreviewBtn { display: inline-flex; align-items: center; justify-content: center; padding: .25rem .45rem; border-radius: 8px; font-size: .78rem; cursor: pointer; }
 
 .screenTabs { display: flex; gap: .6rem; margin: 0 0 1rem; position: sticky; top: calc(var(--header-height) + .35rem); z-index: 15; padding: .5rem 0; background: linear-gradient(180deg, #11131a, rgba(17,19,26,.86)); }
 .screenTab.active { background: #6d8cff; color: white; box-shadow: 0 0 0 2px rgba(109,140,255,.2); }
@@ -185,6 +187,9 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupAiFields dt { color: #ffe66f; font-weight: 900; }
 .groupAiFields dd { margin: 0; color: #dce6f7; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .groupDetailSection { display: grid; gap: .7rem; padding: .8rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
+.groupCollapsibleSection > summary { cursor: pointer; list-style-position: inside; }
+.groupCollapsibleSection > summary.groupSectionHead, .groupCollapsibleSection > summary.groupImageHead { display: flex; }
+.groupCollapsibleSection > summary h4 { display: inline; }
 .groupSectionHead { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .groupSectionHead h4 { margin: 0 0 .2rem; color: #86ffd7; }
 .groupSectionHead p { margin: 0; max-width: 44rem; }
@@ -225,6 +230,10 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineRuler { position: relative; height: 20px; border-bottom: 1px solid #30384d; }
 .groupMediaTimelineRuler span { position: absolute; top: 0; transform: translateX(-50%); color: #ffe66f; font-family: Consolas, monospace; font-size: .72rem; }
 .groupMediaTimelineLane { position: relative; min-height: 76px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #0f131d 0 7.5%, #182338 7.7% 7.9%); }
+.groupChunkTimelineLane { position: relative; min-height: 42px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #101827 0 7.5%, #1e293b 7.7% 7.9%); }
+.groupChunkTimelineBlock { position: absolute; top: 7px; bottom: 7px; min-width: 2rem; padding: .2rem .45rem; border: 1px solid rgba(134,255,215,.35); border-radius: 9px; background: linear-gradient(135deg, #14532d, #0f766e); color: #e6fff8; overflow: hidden; text-align: left; }
+.groupChunkTimelineBlock.missing { border-color: rgba(255,230,111,.35); background: linear-gradient(135deg, #5f4215, #854d0e); }
+.groupChunkTimelineBlock span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 900; }
 .groupMediaPlayheadSlider { width: 100%; accent-color: #ffe66f; }
 .groupMediaPlayhead { position: absolute; top: 0; bottom: 0; width: 2px; z-index: 4; background: #ffe66f; box-shadow: 0 0 12px rgba(255,230,111,.7); pointer-events: none; }
 .groupMediaTimelineBlock { position: absolute; top: 10px; bottom: 10px; min-width: 3.5rem; display: grid; align-content: center; gap: .08rem; padding: .35rem .55rem; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: linear-gradient(135deg, #2d6b8c, #6d8cff); color: #fff; text-align: left; overflow: hidden; }
@@ -237,6 +246,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineBlock span { font-weight: 900; }
 .groupMediaTimelineBlock small { color: rgba(255,255,255,.78); }
 .groupMediaTimelineEmpty { display: grid; place-items: center; min-height: 76px; color: #aeb7c8; border: 1px dashed #3a4359; border-radius: 12px; }
+.groupMediaTimelineEmpty.compact { min-height: 38px; font-size: .78rem; }
 .groupMediaThumbSections { display: grid; gap: .65rem; }
 .groupMediaThumbSection { display: grid; gap: .45rem; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: rgba(9,13,20,.45); }
 .groupMediaThumbSection h5 { margin: 0; color: #ffe66f; }

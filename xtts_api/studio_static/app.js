@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-group-timeline-split-fixes";
+﻿const FRONTEND_BUILD = "2026-05-13-group-media-timeline-audio";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1184,7 +1184,6 @@ function syncPreviewGroupToPlayhead({ forceRender = false } = {}) {
   if (state.preview.groupId === nextGroupId && !forceRender) return;
   state.preview.groupId = nextGroupId;
   if (nextGroupId) {
-    state.selectedGroupId = nextGroupId;
     setActiveGroupNav(nextGroupId);
     renderVideoGroupLanesHost();
   }
@@ -2611,18 +2610,20 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   const row = document.createElement("div");
   row.className = "groupMediaItem";
   row.dataset.mediaId = sourceItem.id || `media_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  row.dataset.sourceId = sourceItem.source_id || sourceItem.asset_id || "";
   const duration = clamp(sourceItem.duration_sec || sourceItem.visual_duration_sec || sourceItem.default_duration_sec || Math.min(5, Math.max(0.5, groupDuration || 5)), 0.1, 36000);
   const scheduled = sourceItem.scheduled === true;
   row.innerHTML = `
-    <label>Type <select data-media-field="type"><option value="image" ${sourceItem.type !== "video" ? "selected" : ""}>image</option><option value="video" ${sourceItem.type === "video" ? "selected" : ""}>video</option></select></label>
-    <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(rawPath)}" /></label>
-    <label>Label <input type="text" data-media-field="label" value="${escapeHtml(sourceItem.label || shortPath(rawPath) || "Media")}" /></label>
-    <label>Role <input type="text" data-media-field="role" value="${escapeHtml(sourceItem.role || "main")}" /></label>
-    <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(sourceItem.start_offset_sec || 0).toFixed(2)}" /></label>
-    <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(duration).toFixed(2)}" /></label>
-    <label class="inlineCheck">Timeline <input type="checkbox" data-media-field="scheduled" ${scheduled ? "checked" : ""} /></label>
+    <label>Тип <select data-media-field="type"><option value="image" ${sourceItem.type !== "video" ? "selected" : ""}>картинка</option><option value="video" ${sourceItem.type === "video" ? "selected" : ""}>видео</option></select></label>
+    <input type="hidden" data-media-field="source_id" value="${escapeHtml(sourceItem.source_id || sourceItem.asset_id || "")}" />
+    <label>Путь/URL <input type="text" data-media-field="path" value="${escapeHtml(rawPath)}" /></label>
+    <label>Название <input type="text" data-media-field="label" value="${escapeHtml(sourceItem.label || shortPath(rawPath) || "Медиа")}" /></label>
+    <label>Роль <input type="text" data-media-field="role" value="${escapeHtml(sourceItem.role || "main")}" /></label>
+    <label>Старт <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(sourceItem.start_offset_sec || 0).toFixed(2)}" /></label>
+    <label>Длительность <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(duration).toFixed(2)}" /></label>
+    <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${scheduled ? "checked" : ""} /></label>
     <label>Fit <select data-media-field="fit"><option value="cover" ${sourceItem.fit !== "contain" && sourceItem.fit !== "fill" ? "selected" : ""}>cover</option><option value="contain" ${sourceItem.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${sourceItem.fit === "fill" ? "selected" : ""}>fill</option></select></label>
-    <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
+    <button type="button" class="secondary deleteGroupMediaBtn">Удалить блок</button>
   `;
   row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
   list.appendChild(row);
@@ -2659,16 +2660,16 @@ function stopGroupMediaPreview(card) {
 function renderGroupMediaThumbs(card, group) {
   const root = card?.querySelector?.(".groupMediaThumbSections");
   if (!root) return;
-  const items = normalizeGroupMediaItems(group);
+  const items = window.XTTSStudio?.GroupMediaUtils?.assetItems?.(normalizeGroupMediaItems(group)) || normalizeGroupMediaItems(group);
   const sectionHtml = (type, title) => {
     const subset = items.filter((item) => item.type === type);
     return `<section class="groupMediaThumbSection"><h5>${title}</h5><div class="groupMediaThumbGrid">${subset.map((item) => {
       const url = groupMediaUrl(item);
       const media = type === "video" ? `<video src="${escapeHtml(url)}" muted loop playsinline></video>` : `<img src="${escapeHtml(url)}" alt="" />`;
       return `<button type="button" class="groupMediaThumb" draggable="true" data-media-id="${escapeHtml(item.id)}">${media}<span>${escapeHtml(item.label || shortPath(item.path || item.url))}</span></button>`;
-    }).join("") || `<p class="groupMediaEmpty">No ${title.toLowerCase()} yet.</p>`}</div></section>`;
+    }).join("") || `<p class="groupMediaEmpty">${type === "video" ? "Видео" : "Картинок"} пока нет.</p>`}</div></section>`;
   };
-  root.innerHTML = sectionHtml("image", "Images") + sectionHtml("video", "Videos");
+  root.innerHTML = sectionHtml("image", "Картинки") + sectionHtml("video", "Видео");
   root.querySelectorAll(".groupMediaThumb").forEach((thumb) => {
     const item = items.find((media) => media.id === thumb.dataset.mediaId);
     thumb.onclick = () => selectGroupMediaPreview(card, item);
@@ -2714,15 +2715,16 @@ function renderGroupDetail(group, { force = false } = {}) {
   const mediaItems = normalizeGroupMediaItems(group);
   const mediaItemsHtml = mediaItems.map((item, index) => `
     <div class="groupMediaItem" data-media-index="${index}" data-media-id="${escapeHtml(item.id || `media_${index}`)}">
-      <label>Type <select data-media-field="type"><option value="image" ${item.type === "image" ? "selected" : ""}>image</option><option value="video" ${item.type === "video" ? "selected" : ""}>video</option></select></label>
-      <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(item.path || item.url || "")}" /></label>
-      <label>Label <input type="text" data-media-field="label" value="${escapeHtml(item.label || "")}" /></label>
-      <label>Role <input type="text" data-media-field="role" value="${escapeHtml(item.role || "main")}" /></label>
-      <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(item.start_offset_sec || 0).toFixed(2)}" /></label>
-      <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(item.duration_sec || 0).toFixed(2)}" /></label>
-      <label class="inlineCheck">Timeline <input type="checkbox" data-media-field="scheduled" ${item.scheduled !== false ? "checked" : ""} /></label>
+      <label>Тип <select data-media-field="type"><option value="image" ${item.type === "image" ? "selected" : ""}>картинка</option><option value="video" ${item.type === "video" ? "selected" : ""}>видео</option></select></label>
+      <input type="hidden" data-media-field="source_id" value="${escapeHtml(item.source_id || "")}" />
+      <label>Путь/URL <input type="text" data-media-field="path" value="${escapeHtml(item.path || item.url || "")}" /></label>
+      <label>Название <input type="text" data-media-field="label" value="${escapeHtml(item.label || "")}" /></label>
+      <label>Роль <input type="text" data-media-field="role" value="${escapeHtml(item.role || "main")}" /></label>
+      <label>Старт <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(item.start_offset_sec || 0).toFixed(2)}" /></label>
+      <label>Длительность <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(item.duration_sec || 0).toFixed(2)}" /></label>
+      <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${item.scheduled !== false ? "checked" : ""} /></label>
       <label>Fit <select data-media-field="fit"><option value="cover" ${item.fit === "cover" ? "selected" : ""}>cover</option><option value="contain" ${item.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${item.fit === "fill" ? "selected" : ""}>fill</option></select></label>
-      <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
+      <button type="button" class="secondary deleteGroupMediaBtn">Удалить блок</button>
     </div>
   `).join("");
   const image = group.image || {};
@@ -2861,14 +2863,38 @@ function renderGroupMediaTimeline(card, group) {
   const host = card?.querySelector?.(".groupMediaTimelineHost");
   const timeline = window.XTTSStudio?.GroupMediaTimeline;
   if (!host || !timeline) return;
-  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId });
+  const chunks = groupChunkTimelineItems(group);
+  let activeChunkAudio = null;
+  let activeChunkAudioId = "";
+  const stopChunkAudio = () => {
+    if (activeChunkAudio) activeChunkAudio.pause?.();
+    activeChunkAudio = null;
+    activeChunkAudioId = "";
+  };
+  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks });
   renderFromRows();
   timeline.bind(host, card, group, renderFromRows, {
+      chunks,
       onSelect: (item) => selectGroupMediaPreview(card, item),
       onPreviewTime: (item, localTimeSec) => playGroupMediaPreview(card, item, localTimeSec),
-      onPreviewStop: () => stopGroupMediaPreview(card),
+      onPreviewChunkTime: (chunk, localTimeSec) => {
+        if (!chunk?.audio_url) {
+          stopChunkAudio();
+          return;
+        }
+        const offset = Math.max(0, Number(localTimeSec || 0) - Number(chunk.local_start_sec || 0));
+        if (!activeChunkAudio || activeChunkAudioId !== chunk.id) {
+          stopChunkAudio();
+          activeChunkAudio = new Audio(chunk.audio_url);
+          activeChunkAudio.volume = Number(state.project?.settings?.voice_volume ?? 1);
+          activeChunkAudioId = chunk.id;
+        }
+        try { if (Math.abs((activeChunkAudio.currentTime || 0) - offset) > 0.35) activeChunkAudio.currentTime = offset; } catch (_) { /* best-effort audio seek */ }
+        activeChunkAudio.play?.().catch?.(() => {});
+      },
+      onPreviewStop: () => { stopGroupMediaPreview(card); stopChunkAudio(); },
       onAdd: (item) => addGroupMediaRow(card, item, group.duration),
-      onReject: (message) => setStatus(message),
+      onReject: (message) => setStatus(message === "Group media timeline is fully occupied; drop rejected." ? "Таймлайн группы заполнен; добавление отклонено." : message),
       onChange: () => saveGroupPrompts(group.id, card),
   });
 }
@@ -2887,6 +2913,8 @@ async function saveGroupPrompts(groupId, card) {
     const pathOrUrl = value("path");
     const item = {
       id: row.dataset.mediaId || undefined,
+      source_id: value("source_id") || row.dataset.sourceId || "",
+      kind: row.querySelector(`[data-media-field='scheduled']`)?.checked !== false ? "timeline_block" : "media_asset",
       type: value("type") || "image",
       path: /^https?:\/\//i.test(pathOrUrl) ? "" : pathOrUrl,
       url: /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : "",
@@ -2931,6 +2959,10 @@ function deleteSelectedGroupMedia() {
   if (group) saveGroupPrompts(group.id, card).catch((err) => setStatus(`Delete group media failed: ${err.message}`));
   state.groupMedia.selectedId = "";
   return true;
+}
+
+function mediaLibraryDragPayload(item) {
+  return { ...item, source_id: item.source_id || item.id || "", scheduled: false, kind: "media_asset" };
 }
 
 async function generateSelectedGroupPrompt(groupId) {
@@ -4102,7 +4134,8 @@ if (musicLoopChainBtn) musicLoopChainBtn.onclick = () => {
 };
 
 function allProjectMediaItems(type = state.groupMedia.libraryTab || "image") {
-  return groupTimelineSpans().flatMap((group) => normalizeGroupMediaItems(group).filter((item) => item.type === type).map((item) => ({ ...item, group_id: group.id, group_title: group.title })));
+  const utils = window.XTTSStudio?.GroupMediaUtils;
+  return groupTimelineSpans().flatMap((group) => (utils?.assetItems?.(normalizeGroupMediaItems(group)) || normalizeGroupMediaItems(group)).filter((item) => item.type === type).map((item) => ({ ...item, group_id: group.id, group_title: group.title })));
 }
 
 function renderMediaLibraryPanel() {
@@ -4114,7 +4147,7 @@ function renderMediaLibraryPanel() {
   });
   const items = allProjectMediaItems(state.groupMedia.libraryTab);
   if (!items.length) {
-    root.innerHTML = `<div class="chunkNavEmpty"><strong>No ${escapeHtml(state.groupMedia.libraryTab)} media yet</strong><small>Generated group media appears here and can be dragged into another group.</small></div>`;
+    root.innerHTML = `<div class="chunkNavEmpty"><strong>${state.groupMedia.libraryTab === "video" ? "Видео" : "Картинок"} пока нет</strong><small>Сгенерированные медиа появятся здесь и могут использоваться в любых группах без копирования исходника.</small></div>`;
     return;
   }
   root.innerHTML = "";
@@ -4124,10 +4157,15 @@ function renderMediaLibraryPanel() {
     button.className = "mediaLibraryItem";
     button.draggable = true;
     const url = groupMediaUrl(item);
-    button.innerHTML = `${item.type === "video" ? `<video src="${escapeHtml(url)}" muted loop playsinline></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<strong>${escapeHtml(item.label || shortPath(item.path || item.url))}</strong><small>${escapeHtml(item.group_title || item.group_id || "group")}</small>`;
+    button.innerHTML = `${item.type === "video" ? `<video src="${escapeHtml(url)}" muted loop playsinline></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<strong>${escapeHtml(item.label || shortPath(item.path || item.url))}</strong><small>${escapeHtml(item.group_title || item.group_id || "группа")}</small><span class="mediaLibraryActions"><span class="secondary mediaLibraryPreviewBtn">Превью</span></span>`;
+    button.onclick = (event) => {
+      if (!event.target.closest?.(".mediaLibraryPreviewBtn")) return;
+      event.preventDefault();
+      quickPreviewMediaInTop(item);
+    };
     button.ondragstart = (event) => {
       event.dataTransfer.effectAllowed = "copy";
-      event.dataTransfer.setData("application/x-xtts-group-media", JSON.stringify({ ...item, id: `media_${Date.now()}_${Math.random().toString(16).slice(2)}` }));
+      event.dataTransfer.setData("application/x-xtts-group-media", JSON.stringify(mediaLibraryDragPayload(item)));
     };
     root.appendChild(button);
   }

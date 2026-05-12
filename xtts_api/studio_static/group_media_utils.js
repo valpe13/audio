@@ -3,8 +3,31 @@ window.XTTSStudio = window.XTTSStudio || {};
 (function registerGroupMediaUtils(namespace) {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
 
+  function mediaKey(item) {
+    const raw = String(item?.source_path || item?.path || item?.url || item?.source_url || item?.id || "").trim();
+    return `${item?.type === "video" ? "video" : "image"}:${raw.toLowerCase()}`;
+  }
+
+  function isScheduledBlock(item) {
+    if (!item || typeof item !== "object") return false;
+    return item.scheduled !== false && (item.start_offset_sec !== undefined || item.duration_sec !== undefined || item.kind === "timeline_block");
+  }
+
   function scheduledItems(items) {
-    return (Array.isArray(items) ? items : []).filter((item) => item?.scheduled !== false);
+    return (Array.isArray(items) ? items : []).filter(isScheduledBlock);
+  }
+
+  function assetItems(items) {
+    const out = [];
+    const seen = new Set();
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || item.type === "audio") continue;
+      const key = mediaKey(item);
+      if (!key.split(":").slice(1).join(":") || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...item, scheduled: false, asset_key: key });
+    }
+    return out;
   }
 
   function itemEnd(item) {
@@ -35,5 +58,5 @@ window.XTTSStudio = window.XTTSStudio || {};
       || gaps.slice().sort((a, b) => b.duration - a.duration || a.start - b.start)[0];
   }
 
-  namespace.GroupMediaUtils = { scheduledItems, freeIntervals, bestFreeInterval };
+  namespace.GroupMediaUtils = { mediaKey, isScheduledBlock, scheduledItems, assetItems, freeIntervals, bestFreeInterval };
 })(window.XTTSStudio);

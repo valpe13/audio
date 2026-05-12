@@ -15,7 +15,15 @@ window.XTTSStudio = window.XTTSStudio || {};
   }
 
   function mediaPath(item) {
-    return String(item?.path || item?.url || "");
+    return String(item?.source_path || item?.path || item?.url || item?.source_url || "");
+  }
+
+  function chunkStart(chunk) {
+    return Number(chunk?.local_start_sec ?? chunk?.start_offset_sec ?? chunk?.start ?? 0) || 0;
+  }
+
+  function chunkDuration(chunk) {
+    return Math.max(0, Number(chunk?.duration_sec ?? chunk?.duration ?? 0) || 0);
   }
 
   function itemDuration(item, groupDuration) {
@@ -32,6 +40,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       const duration = clamp(value("duration_sec"), 0, Math.max(0, groupDuration || 0));
       return {
         id: row.dataset.mediaId || `media_${index}`,
+        source_id: value("source_id") || row.dataset.sourceId || "",
         type: value("type") || "image",
         path: value("path"),
         label: value("label") || value("path") || `Media ${index + 1}`,
@@ -57,6 +66,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     const duration = Math.max(0.25, Number(group?.duration || 0));
     const scale = timelineScale(duration);
     const items = namespace.GroupMediaUtils?.scheduledItems?.(mediaItems) || (Array.isArray(mediaItems) ? mediaItems.filter((item) => item?.scheduled !== false) : []);
+    const chunks = Array.isArray(options.chunks) ? options.chunks : [];
     const rulerTicks = [];
     const tickCount = Math.min(12, Math.max(2, Math.ceil(duration / 5)));
     for (let i = 0; i <= tickCount; i += 1) {
@@ -79,7 +89,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       <div class="groupMediaTimelineHead">
         <div>
           <strong>Таймлайн медиа группы</strong>
-          <small>0 → ${escapeHtml(formatSeconds(duration))}. Выберите клип, сдвиньте/измените длительность, затем сохраните группу.</small>
+          <small>0 → ${escapeHtml(formatSeconds(duration))}. Выберите блок, сдвиньте/измените длительность, затем сохраните группу.</small>
         </div>
         <div class="groupMediaTimelineButtons">
           <button type="button" class="secondary groupMediaPreviewPlay">▶ Играть</button>
@@ -92,7 +102,16 @@ window.XTTSStudio = window.XTTSStudio || {};
       </div>
       <div class="groupMediaTimelineRuler">${rulerTicks.join("")}</div>
       <input type="range" class="groupMediaPlayheadSlider" min="0" max="${duration.toFixed(3)}" step="0.05" value="0" aria-label="Позиция предпросмотра медиа группы" />
-      <div class="groupMediaTimelineLane" tabindex="0"><i class="groupMediaPlayhead" style="left:0%"></i>${blocks || `<div class="groupMediaTimelineEmpty">На таймлайне пока нет клипов. Перетащите медиа сюда; элементы библиотеки остаются ниже.</div>`}</div>
+      <div class="groupMediaTimelineLane" tabindex="0"><i class="groupMediaPlayhead" style="left:0%"></i>${blocks || `<div class="groupMediaTimelineEmpty">На таймлайне пока нет медиа-блоков. Перетащите миниатюру сюда; исходник не будет дублироваться.</div>`}</div>
+      <div class="groupChunkTimelineLane" aria-label="Дорожка чанков группы">
+        ${chunks.map((chunk) => {
+          const start = clamp(chunkStart(chunk), 0, duration);
+          const len = Math.max(0.05, chunkDuration(chunk));
+          const left = (start / scale) * 100;
+          const width = Math.max(2, Math.min(100 - left, (len / scale) * 100));
+          return `<button type="button" class="groupChunkTimelineBlock ${chunk.audio_url ? "ready" : "missing"}" data-chunk-id="${escapeHtml(chunk.id || "")}" style="left:${left}%;width:${width}%" title="${escapeHtml(chunk.label || "Чанк")} · ${start.toFixed(2)}s → ${(start + len).toFixed(2)}s${chunk.audio_url ? "" : " · аудио нет"}"><span>${escapeHtml(chunk.label || "Чанк")}</span></button>`;
+        }).join("") || `<div class="groupMediaTimelineEmpty compact">В группе нет чанков с таймингом.</div>`}
+      </div>
       <div class="groupMediaTimelineInspector">
         <span class="groupMediaTimelineSelection">Выберите клип таймлайна или отредактируйте строки ниже.</span>
       </div>
@@ -103,6 +122,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     if (!host || !card) return;
     const duration = Math.max(0.25, Number(group?.duration || 0));
     let selectedIndex = -1;
+    let activeAudio = null;
     const rows = () => [...card.querySelectorAll(".groupMediaItem")];
     const timelineItems = () => namespace.GroupMediaUtils?.scheduledItems?.(normalizedItemsFromRows(card, duration)) || normalizedItemsFromRows(card, duration).filter((item) => item.scheduled !== false);
     const scheduledRows = () => rows().filter((row) => row.querySelector(`[data-media-field='scheduled']`)?.checked !== false);
@@ -114,6 +134,15 @@ window.XTTSStudio = window.XTTSStudio || {};
         return time >= start && time < end;
       }) || null;
     };
+    const activeChunkAt = (timeSec) => {
+      const chunks = Array.isArray(callbacks.chunks) ? callbacks.chunks : [];
+      const time = clamp(timeSec, 0, duration);
+      return chunks.find((chunk) => {
+        const start = chunkStart(chunk);
+        const end = start + chunkDuration(chunk);
+        return time >= start && time < end;
+      }) || null;
+    };
     const setPlayhead = (timeSec) => {
       const time = clamp(timeSec, 0, duration);
       const slider = host.querySelector(".groupMediaPlayheadSlider");
@@ -122,11 +151,16 @@ window.XTTSStudio = window.XTTSStudio || {};
       if (playhead) playhead.style.left = `${(time / Math.max(0.25, duration)) * 100}%`;
       const item = activeItemAt(time);
       if (item) callbacks.onPreviewTime?.(item, time);
+      callbacks.onPreviewChunkTime?.(activeChunkAt(time), time);
       return time;
     };
     const stopPlayback = () => {
       if (namespace.GroupMediaTimeline?.previewTimer) window.clearInterval(namespace.GroupMediaTimeline.previewTimer);
       namespace.GroupMediaTimeline.previewTimer = null;
+      if (activeAudio) {
+        activeAudio.pause?.();
+        activeAudio = null;
+      }
       callbacks.onPreviewStop?.();
     };
     const startPlayback = () => {
@@ -182,10 +216,8 @@ window.XTTSStudio = window.XTTSStudio || {};
         callbacks.onReject?.("Group media timeline is fully occupied; drop rejected.");
         return;
       }
-      item.start_offset_sec = gap.start;
-      item.duration_sec = gap.duration;
-      item.scheduled = true;
-      callbacks.onAdd?.(item);
+      const block = { ...item, id: `block_${Date.now()}_${Math.random().toString(16).slice(2)}`, source_id: item.source_id || item.id || "", start_offset_sec: gap.start, duration_sec: gap.duration, scheduled: true, kind: "timeline_block" };
+      callbacks.onAdd?.(block);
       rerender?.();
       callbacks.onChange?.();
     };
