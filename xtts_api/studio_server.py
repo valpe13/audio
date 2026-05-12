@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-subtitles-export-scopes"
+STUDIO_BUILD = "2026-05-13-group-subtitle-timeline-fix"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -1292,8 +1292,8 @@ def normalize_subtitle_blocks(raw_blocks: Any, group: dict[str, Any] | None = No
     for idx, raw in enumerate(raw_blocks if isinstance(raw_blocks, list) else []):
         if not isinstance(raw, dict):
             continue
-        start = max(0.0, min(duration, float(raw.get("start_offset_sec") or raw.get("start") or 0.0)))
-        block_duration = max(0.05, min(duration - start if duration > start else duration, float(raw.get("duration_sec") or raw.get("duration") or max(0.05, duration - start))))
+        start = max(0.0, min(duration, float(raw.get("start_offset_sec") if raw.get("start_offset_sec") is not None else raw.get("start") or 0.0)))
+        block_duration = max(0.05, min(duration - start if duration > start else duration, float(raw.get("duration_sec") if raw.get("duration_sec") is not None else raw.get("duration") or max(0.05, duration - start))))
         block_defaults = normalize_subtitle_defaults({**defaults, **raw})
         blocks.append({
             "id": str(raw.get("id") or f"subtitle_{idx + 1:03d}"),

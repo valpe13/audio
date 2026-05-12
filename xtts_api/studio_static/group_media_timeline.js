@@ -67,6 +67,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     const scale = timelineScale(duration);
     const items = namespace.GroupMediaUtils?.scheduledItems?.(mediaItems) || (Array.isArray(mediaItems) ? mediaItems.filter((item) => item?.scheduled !== false) : []);
     const chunks = Array.isArray(options.chunks) ? options.chunks : [];
+    const subtitleLane = namespace.GroupSubtitleTimeline?.laneHtml?.(group, Array.isArray(options.subtitleBlocks) ? options.subtitleBlocks : []);
     const rulerTicks = [];
     const tickCount = Math.min(12, Math.max(2, Math.ceil(duration / 5)));
     for (let i = 0; i <= tickCount; i += 1) {
@@ -111,6 +112,10 @@ window.XTTSStudio = window.XTTSStudio || {};
           const width = Math.max(2, Math.min(100 - left, (len / scale) * 100));
           return `<button type="button" class="groupChunkTimelineBlock ${chunk.audio_url ? "ready" : "missing"}" data-chunk-id="${escapeHtml(chunk.id || "")}" style="left:${left}%;width:${width}%" title="${escapeHtml(chunk.label || "Чанк")} · ${start.toFixed(2)}s → ${(start + len).toFixed(2)}s${chunk.audio_url ? "" : " · аудио нет"}"><span>${escapeHtml(chunk.label || "Чанк")}</span></button>`;
         }).join("") || `<div class="groupMediaTimelineEmpty compact">В группе нет чанков с таймингом.</div>`}
+      </div>
+      <div class="groupMediaSubtitleLaneWrap">
+        <div class="groupSubtitleTimelineHead"><strong>Дорожка субтитров</strong><small>Интегрирована в таймлайн группы.</small></div>
+        ${subtitleLane || `<div class="groupMediaTimelineEmpty compact">Модуль субтитров не загрузился.</div>`}
       </div>
       <div class="groupMediaTimelineInspector">
         <span class="groupMediaTimelineSelection">Выберите клип таймлайна или отредактируйте строки ниже.</span>

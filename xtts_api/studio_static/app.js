@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-subtitles-export-scopes";
+﻿const FRONTEND_BUILD = "2026-05-13-group-subtitle-timeline-fix";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -674,6 +674,10 @@ function normalizeGroupMediaItems(group) {
     volume: item.volume === undefined || item.volume === null ? undefined : clamp(item.volume, 0, 2),
     order: index,
   }));
+}
+
+function groupChunkTimelineItems(group) {
+  return window.XTTSStudio?.GroupMediaUtils?.groupChunkTimelineItems?.(group, state.timeline.arrangement || []) || [];
 }
 
 function persistedVideoSpeedEnvelope() {
@@ -1528,24 +1532,10 @@ function groupSubtitleSectionHtml(group) {
   const defaults = subtitle?.defaults?.(group.subtitle_defaults) || group.subtitle_defaults || {};
   return `
     <section class="groupDetailSection groupSubtitleEditor">
-      <div class="groupSectionHead"><div><h4>Субтитры группы</h4><p>Блоки используют текст группы или чанков и показываются отдельной дорожкой только там, где они добавлены.</p></div><div class="row wrap"><button type="button" class="secondary addGroupSubtitleFullBtn">Добавить субтитры на всю группу</button><button type="button" class="secondary addGroupSubtitleChunksBtn">Добавить по чанкам</button></div></div>
-      <div class="grid two imageSettingsGrid groupSubtitleDefaults">
-        <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
-        <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label><label>Размер <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 42)}" /></label><label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label><label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label><label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /></label><label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
-      </div>
-      <div class="groupSubtitleTimelineHost"><div class="groupMediaTimelineEmpty">Дорожка субтитров загружается…</div></div><div class="groupSubtitleBlocks"></div>
-    </section>`;
-}
-
-function groupSubtitleSectionHtml(group) {
-  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
-  const defaults = subtitle?.defaults?.(group.subtitle_defaults) || group.subtitle_defaults || {};
-  return `
-    <section class="groupDetailSection groupSubtitleEditor">
       <div class="groupSectionHead">
         <div>
           <h4>Субтитры группы</h4>
-          <p>Блоки используют текст группы или чанков и показываются отдельной дорожкой только там, где они добавлены.</p>
+          <p>Блоки используют текст группы или чанков и показываются дорожкой внутри таймлайна медиа группы.</p>
         </div>
         <div class="row wrap">
           <button type="button" class="secondary addGroupSubtitleFullBtn">Добавить субтитры на всю группу</button>
@@ -1558,10 +1548,9 @@ function groupSubtitleSectionHtml(group) {
         <label>Размер <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 42)}" /></label>
         <label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label>
         <label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label>
-        <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /></label>
+        <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /><small class="subtitleOpacityHint">0 = без фона / прозрачно</small></label>
         <label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
       </div>
-      <div class="groupSubtitleTimelineHost"><div class="groupMediaTimelineEmpty">Дорожка субтитров загружается…</div></div>
       <div class="groupSubtitleBlocks"></div>
     </section>
   `;
@@ -2882,27 +2871,36 @@ function renderGroupDetail(group, { force = false } = {}) {
 
 function groupSubtitleDefaultsFromCard(card) {
   const value = (field) => card.querySelector(`[data-subtitle-default='${field}']`)?.value || "";
-  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: Number(value("background_opacity") || 0.45), outline: Number(value("outline") || 2) }) || {};
+  const opacityValue = value("background_opacity");
+  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2) }) || {};
 }
 
 function renderGroupSubtitleEditor(card, group) {
   const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
   const list = card?.querySelector?.(".groupSubtitleBlocks");
-  const host = card?.querySelector?.(".groupSubtitleTimelineHost");
-  if (!list || !host) return;
-  if (!subtitle) { host.innerHTML = `<div class="groupMediaTimelineFallback" role="status">Модуль субтитров не загрузился. Обновите страницу без кэша.</div>`; return; }
-  const chunks = groupChunkTimelineItems(group);
+  const mediaHost = card?.querySelector?.(".groupMediaTimelineHost");
+  if (!list) return;
+  if (!subtitle) {
+    if (mediaHost) mediaHost.insertAdjacentHTML("beforeend", `<div class="groupMediaTimelineFallback" role="status">Модуль субтитров не загрузился. Обновите страницу без кэша.</div>`);
+    return;
+  }
+  let chunks = [];
+  try {
+    chunks = groupChunkTimelineItems(group);
+  } catch (err) {
+    console.error("Group subtitle chunk timeline failed", err);
+    const mediaHostNow = card?.querySelector?.(".groupMediaTimelineHost");
+    if (mediaHostNow) mediaHostNow.insertAdjacentHTML("beforeend", `<div class="groupMediaTimelineFallback" role="status">Тайминги чанков для субтитров недоступны: ${escapeHtml(err?.message || "ошибка подготовки")}. Субтитры можно редактировать вручную.</div>`);
+  }
   list.innerHTML = "";
   (Array.isArray(group.subtitle_blocks) ? group.subtitle_blocks : []).forEach((block, index) => subtitle.appendRow(list, subtitle.normalizeBlock(block, index, group.duration, group.subtitle_defaults)));
-  const rerender = () => subtitle.render(host, group, subtitle.blocksFromRows(card, group.duration, groupSubtitleDefaultsFromCard(card)));
+  const rerender = () => renderGroupMediaTimeline(card, { ...group, subtitle_defaults: groupSubtitleDefaultsFromCard(card) });
   card.querySelector(".addGroupSubtitleFullBtn")?.addEventListener("click", () => { subtitle.appendRow(list, subtitle.blockFromGroup({ ...group, subtitle_defaults: groupSubtitleDefaultsFromCard(card) }, chunks)); rerender(); });
   card.querySelector(".addGroupSubtitleChunksBtn")?.addEventListener("click", () => { subtitle.blocksFromChunks({ ...group, subtitle_defaults: groupSubtitleDefaultsFromCard(card) }, chunks).forEach((block) => subtitle.appendRow(list, block)); rerender(); });
   card.querySelectorAll("[data-subtitle-default]").forEach((input) => { input.addEventListener("input", rerender); input.addEventListener("change", rerender); });
   list.addEventListener("input", rerender);
   list.addEventListener("change", rerender);
   list.addEventListener("click", (event) => { if (event.target.closest?.(".deleteSubtitleBlockBtn")) setTimeout(rerender, 0); });
-  rerender();
-  subtitle.bind(host, card);
 }
 
 async function splitGroupsNormal() {
@@ -2954,7 +2952,15 @@ function renderGroupMediaTimeline(card, group) {
     showTimelineFallback("модуль таймлайна не загрузился. Обновите страницу без кэша; медиа ниже остаются доступны.");
     return;
   }
-  const chunks = groupChunkTimelineItems(group);
+  let chunks = [];
+  try {
+    chunks = groupChunkTimelineItems(group);
+  } catch (err) {
+    console.error("Group media chunk timeline failed", err);
+    showTimelineFallback(`тайминги чанков недоступны: ${err?.message || "ошибка подготовки"}. Проверьте длительности чанков и обновите страницу без кэша.`);
+    return;
+  }
+  const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
   let activeChunkAudio = null;
   let activeChunkAudioId = "";
   const stopChunkAudio = () => {
@@ -2964,7 +2970,9 @@ function renderGroupMediaTimeline(card, group) {
   };
   const renderFromRows = () => {
     try {
-      timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks });
+      const subtitleBlocks = subtitle ? subtitle.blocksFromRows(card, group.duration, groupSubtitleDefaultsFromCard(card)) : [];
+      timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks, subtitleBlocks });
+      subtitle?.bind?.(host, card);
     } catch (err) {
       console.error("Group media timeline render failed", err);
       showTimelineFallback(err?.stack || err?.message || "ошибка отрисовки таймлайна");

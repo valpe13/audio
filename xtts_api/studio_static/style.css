@@ -231,6 +231,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineRuler span { position: absolute; top: 0; transform: translateX(-50%); color: #ffe66f; font-family: Consolas, monospace; font-size: .72rem; }
 .groupMediaTimelineLane { position: relative; min-height: 76px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #0f131d 0 7.5%, #182338 7.7% 7.9%); }
 .groupChunkTimelineLane { position: relative; min-height: 42px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #101827 0 7.5%, #1e293b 7.7% 7.9%); }
+.groupMediaSubtitleLaneWrap { display: grid; gap: .35rem; padding: .45rem; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; background: rgba(2, 6, 23, 0.2); }
 .groupChunkTimelineBlock { position: absolute; top: 7px; bottom: 7px; min-width: 2rem; padding: .2rem .45rem; border: 1px solid rgba(134,255,215,.35); border-radius: 9px; background: linear-gradient(135deg, #14532d, #0f766e); color: #e6fff8; overflow: hidden; text-align: left; }
 .groupChunkTimelineBlock.missing { border-color: rgba(255,230,111,.35); background: linear-gradient(135deg, #5f4215, #854d0e); }
 .groupChunkTimelineBlock span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; font-weight: 900; }
@@ -376,6 +377,7 @@ input[type="range"] { vertical-align: middle; width: 12rem; }
 .groupSubtitleTimelineBlock.pos-top { border-color: rgba(56, 189, 248, 0.85); }
 .groupSubtitleTimelineBlock.pos-center { border-color: rgba(168, 85, 247, 0.85); }
 .groupSubtitleTimelineBlock span { display: block; padding: 8px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.subtitleOpacityHint { display: block; margin-top: .18rem; color: #86ffd7; font-size: .72rem; }
 .imageSettings { margin-top: .65rem; padding: .75rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
 .imageSettings summary { cursor: pointer; color: #86ffd7; font-weight: 900; }
 .imageSettingsGrid { margin-top: .55rem; gap: .5rem .75rem; }

@@ -58,5 +58,35 @@ window.XTTSStudio = window.XTTSStudio || {};
       || gaps.slice().sort((a, b) => b.duration - a.duration || a.start - b.start)[0];
   }
 
-  namespace.GroupMediaUtils = { mediaKey, isScheduledBlock, scheduledItems, assetItems, freeIntervals, bestFreeInterval };
+  function groupChunkTimelineItems(group, arrangement = []) {
+    const chunkIds = Array.isArray(group?.chunk_ids) ? group.chunk_ids.map(String) : [];
+    const selected = new Set(chunkIds);
+    const parts = Array.isArray(group?.parts) && group.parts.length ? group.parts : arrangement;
+    const groupStart = Number(group?.start || 0) || 0;
+    return (Array.isArray(parts) ? parts : [])
+      .filter((part) => {
+        const chunkId = String(part?.chunk?.id || part?.id || "");
+        return chunkId && (!selected.size || selected.has(chunkId));
+      })
+      .map((part, index) => {
+        const chunk = part.chunk || part;
+        const absoluteStart = Number(part.start ?? chunk.start_time ?? groupStart) || groupStart;
+        const duration = Math.max(0, Number(part.duration ?? part.duration_sec ?? chunk.duration_sec ?? 0) || 0);
+        const order = Number.isFinite(Number(chunk.order)) ? Number(chunk.order) : index;
+        const audioUrl = part.audioUrl || chunk.audio_url || (Array.isArray(chunk.versions) ? chunk.versions.find((version) => version?.id === chunk.selected_version_id)?.audio_url || chunk.versions.find((version) => version?.audio_url)?.audio_url : "") || "";
+        return {
+          id: chunk.id || `chunk_${index}`,
+          order,
+          label: `Чанк ${order + 1}`,
+          text: chunk.tts_text || chunk.text || "",
+          audio_url: audioUrl,
+          local_start_sec: clamp(absoluteStart - groupStart, 0, Math.max(0, Number(group?.duration || 0) || 0)),
+          start_offset_sec: clamp(absoluteStart - groupStart, 0, Math.max(0, Number(group?.duration || 0) || 0)),
+          duration_sec: duration,
+        };
+      })
+      .sort((a, b) => a.local_start_sec - b.local_start_sec || a.order - b.order);
+  }
+
+  namespace.GroupMediaUtils = { mediaKey, isScheduledBlock, scheduledItems, assetItems, freeIntervals, bestFreeInterval, groupChunkTimelineItems };
 })(window.XTTSStudio);
