@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-group-media-timeline-audio";
+﻿const FRONTEND_BUILD = "2026-05-13-group-media-section-order-fallback";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1509,13 +1509,13 @@ function groupMediaSectionHtml(group, mediaItemsHtml) {
         </div>
         <button type="button" class="addGroupMediaBtn secondary">Добавить фото/видео</button>
       </div>
-      <div class="grid two imageSettingsGrid">
+      <div class="groupMediaPreview" aria-live="polite"><div class="groupMediaPreviewEmpty">Выберите миниатюру или блок на таймлайне.</div></div>
+      <div class="groupMediaTimelineHost" aria-live="polite"><div class="groupMediaTimelineEmpty">Таймлайн группы загружается…</div></div>
+      <div class="groupMediaThumbSections" aria-label="Медиа группы"></div>
+      <div class="grid two imageSettingsGrid groupMediaSettings">
         <label>Макет <select data-group-setting="media_layout"><option value="sequence" ${(group.media_layout || "sequence") === "sequence" ? "selected" : ""}>последовательно</option><option value="overlay" ${group.media_layout === "overlay" ? "selected" : ""}>наложение</option><option value="background" ${group.media_layout === "background" ? "selected" : ""}>фон</option><option value="manual" ${group.media_layout === "manual" ? "selected" : ""}>вручную</option></select></label>
         <label>Длительность по умолчанию, сек <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
       </div>
-      <div class="groupMediaThumbSections"></div>
-      <div class="groupMediaPreview" aria-live="polite"><div class="groupMediaPreviewEmpty">Выберите миниатюру или блок на таймлайне.</div></div>
-      <div class="groupMediaTimelineHost"></div>
       <div class="groupMediaList legacyHidden">${mediaItemsHtml || `<p class="groupMediaEmpty">Дополнительных медиа пока нет. Сгенерированные картинка/видео используются автоматически.</p>`}</div>
     </section>
   `;
@@ -2862,7 +2862,22 @@ async function splitGroupsNormal() {
 function renderGroupMediaTimeline(card, group) {
   const host = card?.querySelector?.(".groupMediaTimelineHost");
   const timeline = window.XTTSStudio?.GroupMediaTimeline;
-  if (!host || !timeline) return;
+  if (!host) return;
+  const showTimelineFallback = (message) => {
+    host.innerHTML = `
+      <div class="groupMediaTimelineHead">
+        <div>
+          <strong>Таймлайн медиа группы</strong>
+          <small>${escapeHtml(message)}</small>
+        </div>
+      </div>
+      <div class="groupMediaTimelineFallback" role="status">Таймлайн группы временно недоступен: ${escapeHtml(message)}</div>
+    `;
+  };
+  if (!timeline?.render || !timeline?.bind || !timeline?.normalizedItemsFromRows) {
+    showTimelineFallback("модуль таймлайна не загрузился. Обновите страницу без кэша; медиа ниже остаются доступны.");
+    return;
+  }
   const chunks = groupChunkTimelineItems(group);
   let activeChunkAudio = null;
   let activeChunkAudioId = "";
@@ -2871,9 +2886,17 @@ function renderGroupMediaTimeline(card, group) {
     activeChunkAudio = null;
     activeChunkAudioId = "";
   };
-  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks });
+  const renderFromRows = () => {
+    try {
+      timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks });
+    } catch (err) {
+      console.error("Group media timeline render failed", err);
+      showTimelineFallback(err?.message || "ошибка отрисовки таймлайна");
+    }
+  };
   renderFromRows();
-  timeline.bind(host, card, group, renderFromRows, {
+  try {
+    timeline.bind(host, card, group, renderFromRows, {
       chunks,
       onSelect: (item) => selectGroupMediaPreview(card, item),
       onPreviewTime: (item, localTimeSec) => playGroupMediaPreview(card, item, localTimeSec),
@@ -2896,7 +2919,11 @@ function renderGroupMediaTimeline(card, group) {
       onAdd: (item) => addGroupMediaRow(card, item, group.duration),
       onReject: (message) => setStatus(message === "Group media timeline is fully occupied; drop rejected." ? "Таймлайн группы заполнен; добавление отклонено." : message),
       onChange: () => saveGroupPrompts(group.id, card),
-  });
+    });
+  } catch (err) {
+    console.error("Group media timeline bind failed", err);
+    showTimelineFallback(err?.message || "ошибка подключения таймлайна");
+  }
 }
 
 async function saveGroupPrompts(groupId, card) {

@@ -247,6 +247,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineBlock small { color: rgba(255,255,255,.78); }
 .groupMediaTimelineEmpty { display: grid; place-items: center; min-height: 76px; color: #aeb7c8; border: 1px dashed #3a4359; border-radius: 12px; }
 .groupMediaTimelineEmpty.compact { min-height: 38px; font-size: .78rem; }
+.groupMediaTimelineFallback { display: grid; place-items: center; min-height: 76px; padding: .75rem; border: 1px dashed #ffe66f; border-radius: 12px; background: rgba(255,230,111,.08); color: #ffdda1; font-weight: 800; text-align: center; }
 .groupMediaThumbSections { display: grid; gap: .65rem; }
 .groupMediaThumbSection { display: grid; gap: .45rem; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: rgba(9,13,20,.45); }
 .groupMediaThumbSection h5 { margin: 0; color: #ffe66f; }
