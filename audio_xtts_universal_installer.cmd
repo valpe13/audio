@@ -159,7 +159,8 @@ if exist "%APP_DIR%\install_models.cmd" (
     if not errorlevel 1 (
       set "UPDATED_PROJECT=1"
     ) else (
-      echo Git-обновление недоступно или пропущено; существующая папка проекта не перезаписывается через git.
+      echo ПРЕДУПРЕЖДЕНИЕ: Git-обновление недоступно или пропущено; продолжаю установку/ремонт с существующими файлами проекта.
+      echo Код проекта не был обновлён. Зависимости, ComfyUI и модели будут проверены без перезаписи локальных файлов через git.
     )
   )
   if not defined UPDATED_PROJECT if not defined GIT_CHECKOUT call :refresh_existing_project_from_zip

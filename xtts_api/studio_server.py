@@ -35,8 +35,10 @@ from pydantic import BaseModel, Field
 
 try:
     from pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
+    from xai_client import download_http_file, extract_xai_image_url, save_xai_image_url, xai_json_request
 except ImportError:  # pragma: no cover - package-style imports
     from .pronunciation_preprocess import load_pronunciation_dictionary, preprocess_tts_text
+    from .xai_client import download_http_file, extract_xai_image_url, save_xai_image_url, xai_json_request
 
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
@@ -287,31 +289,6 @@ def image_data_uri(path: Path) -> str:
     return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
-def xai_json_request(base_url: str, endpoint: str, api_key: str, *, method: str = "GET", payload: dict[str, Any] | None = None, timeout: float = 60.0) -> Any:
-    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    headers = {"Authorization": f"Bearer {api_key}"}
-    if payload is not None:
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(f"{base_url.rstrip('/')}{endpoint}", data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:700]
-        raise RuntimeError(f"xAI Imagine Video request failed with HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"xAI Imagine Video request failed: {exc.reason}") from exc
-    return json.loads(response_body) if response_body else {}
-
-
-def download_http_file(url: str, out_path: Path, *, timeout: float = 180.0) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "XTTS-Studio/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = response.read()
-    if not data:
-        raise RuntimeError("Downloaded xAI video URL returned an empty body")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(data)
 IMAGE_STYLE_PRESETS = {
     "sleep_documentary": {
         "positive_prefix": "calm documentary realism, soft natural light, realistic scene",
@@ -4090,7 +4067,7 @@ def run_xai_grok_imagine_video_i2v_workflow(project: dict[str, Any], group: dict
         "aspect_ratio": aspect_ratio,
         "resolution": resolution,
     }
-    start_response = xai_json_request(base_url, "/videos/generations", api_key, method="POST", payload=request_payload, timeout=120.0)
+    start_response = xai_json_request(base_url, "/videos/generations", api_key, method="POST", payload=request_payload, timeout=120.0, operation_label="xAI Imagine Video request")
     request_id = str(start_response.get("request_id") or "") if isinstance(start_response, dict) else ""
     if not request_id:
         raise RuntimeError(f"xAI Imagine Video start response did not include request_id: {truncate_text(start_response, 500)}")
@@ -4098,7 +4075,7 @@ def run_xai_grok_imagine_video_i2v_workflow(project: dict[str, Any], group: dict
     poll_response: dict[str, Any] = {}
     video_url = ""
     while time.time() < deadline:
-        result = xai_json_request(base_url, f"/videos/{urllib.parse.quote(request_id)}", api_key, timeout=60.0)
+        result = xai_json_request(base_url, f"/videos/{urllib.parse.quote(request_id)}", api_key, timeout=60.0, operation_label="xAI Imagine Video poll request")
         poll_response = result if isinstance(result, dict) else {}
         status = str(poll_response.get("status") or "").strip().lower()
         if status == "done":
@@ -4118,7 +4095,7 @@ def run_xai_grok_imagine_video_i2v_workflow(project: dict[str, Any], group: dict
     if suffix not in {".mp4", ".webm", ".gif"}:
         suffix = ".mp4"
     raw_out = out_dir / f"{output_prefix}_{request_id[:10]}_grok_raw{suffix}"
-    download_http_file(video_url, raw_out)
+    download_http_file(video_url, raw_out, empty_label="Downloaded xAI video URL")
     loop_mode = str(video_settings.get("grok_loop_postprocess") or DEFAULT_SETTINGS["video_i2v_grok_loop_postprocess"]).strip().lower()
     out, loop_meta = postprocess_grok_loop_video(project, raw_out, loop_mode, crossfade_sec=float(video_settings.get("grok_crossfade_sec") or DEFAULT_SETTINGS["video_i2v_grok_crossfade_sec"]))
     width, height = svd_source_dimensions(settings, image_meta)
@@ -4519,28 +4496,6 @@ def generate_group_image(project: dict[str, Any], group: dict[str, Any], setting
         return generate_group_placeholder_svg(project, group, settings, prompt_bundle, f"ComfyUI workflow template failed: {exc}")
 
 
-def extract_xai_image_url(response: Any) -> str:
-    if not isinstance(response, dict):
-        return ""
-    data = response.get("data")
-    if isinstance(data, list) and data:
-        first = data[0] if isinstance(data[0], dict) else {}
-        if first.get("url"):
-            return str(first.get("url") or "")
-        if first.get("b64_json"):
-            return "data:image/png;base64," + str(first.get("b64_json") or "")
-    image = response.get("image") if isinstance(response.get("image"), dict) else {}
-    return str(image.get("url") or response.get("url") or "")
-
-
-def save_xai_image_url(image_url: str, out: Path) -> None:
-    if image_url.startswith("data:image/"):
-        _header, encoded = image_url.split(",", 1)
-        out.write_bytes(base64.b64decode(encoded))
-        return
-    download_http_file(image_url, out, timeout=180.0)
-
-
 def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], settings: dict[str, Any], prompt_bundle: dict[str, str]) -> dict[str, Any]:
     project_id = safe_project_id(str(project.get("id") or active_project_id()))
     api_key = resolve_xai_api_key(project, project_id)
@@ -4550,14 +4505,16 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
     model = str(settings.get("grok_model") or GROK_IMAGE_MODEL).strip() or GROK_IMAGE_MODEL
     width = int(settings.get("width") or 1024)
     height = int(settings.get("height") or 1024)
+    prompt = prompt_bundle.get("positive_prompt", "")
+    if width and height:
+        prompt = f"{prompt}\n\nComposition request: render for approximately {width}x{height} pixels; preserve this aspect ratio.".strip()
     request_payload = {
         "model": model,
-        "prompt": prompt_bundle.get("positive_prompt", ""),
+        "prompt": prompt,
         "n": 1,
         "response_format": "url",
-        "size": f"{width}x{height}",
     }
-    response = xai_json_request(base_url, "/images/generations", api_key, method="POST", payload=request_payload, timeout=180.0)
+    response = xai_json_request(base_url, "/images/generations", api_key, method="POST", payload=request_payload, timeout=180.0, operation_label="xAI image generation request")
     image_url = extract_xai_image_url(response)
     if not image_url:
         raise RuntimeError(f"xAI image response did not include a URL or b64_json: {truncate_text(response, 700)}")
@@ -4576,8 +4533,13 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
         "height": height,
         "path": path,
         "url": f"/api/image?path={path}&v={int(out.stat().st_mtime)}",
-        "positive_prompt": prompt_bundle.get("positive_prompt", ""),
+        "positive_prompt": prompt,
         "negative_prompt": prompt_bundle.get("negative_prompt", ""),
+        "xai_request": {
+            "endpoint": "/images/generations",
+            "unsupported_parameters_omitted": ["size"],
+            "dimensions_requested_via_prompt": bool(width and height),
+        },
         "created_at": now,
         "updated_at": now,
     }
