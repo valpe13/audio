@@ -29,9 +29,9 @@ echo ===================================
 echo.
 echo Этот файл устанавливает или обновляет проект, Python 3.10 при необходимости,
 echo XTTS-ресурсы, Python-библиотеки, Microsoft C++ Build Tools при необходимости,
-echo а также проверяет и ремонтирует базовый ComfyUI portable для генерации изображений.
-echo Дополнительные большие видео-модели ставятся только с параметром --with-video
-echo или после отдельного подтверждения.
+echo а также проверяет/ремонтирует ComfyUI portable и загружает модели для
+echo генерации изображений и видео.
+echo Чтобы пропустить большие image/video модели, запустите с --skip-video-models.
 echo.
 
 where powershell >nul 2>nul
@@ -62,7 +62,7 @@ if defined SKIP_ASSETS (
 call :install_base_comfyui_runtime
 if errorlevel 1 goto fail
 
-call :maybe_install_video_resources
+call :install_default_video_resources
 
 echo.
 if defined INSTALL_MODE_UPDATE (
@@ -80,6 +80,8 @@ exit /b 0
 if "%~1"=="" exit /b 0
 if /i "%~1"=="--no-pause" set "NO_PAUSE=1"& shift & goto parse_args
 if /i "%~1"=="--with-video" set "WITH_VIDEO=1"& shift & goto parse_args
+if /i "%~1"=="--no-video" set "SKIP_VIDEO_MODELS=1"& shift & goto parse_args
+if /i "%~1"=="--skip-video-models" set "SKIP_VIDEO_MODELS=1"& shift & goto parse_args
 if /i "%~1"=="--skip-assets" set "SKIP_ASSETS=1"& shift & goto parse_args
 if /i "%~1"=="--help" set "SHOW_HELP=1"& shift & goto parse_args
 if /i "%~1"=="/help" set "SHOW_HELP=1"& shift & goto parse_args
@@ -92,20 +94,23 @@ exit /b 1
 echo Универсальный установщик Audio XTTS
 echo.
 echo Использование:
-echo   %~nx0 [--no-pause] [--with-video] [--skip-assets] [--help]
+echo   %~nx0 [--no-pause] [--skip-video-models] [--skip-assets] [--help]
 echo.
 echo Параметры:
-echo   --no-pause     Не ждать нажатия клавиши в конце.
-echo   --with-video   Установить дополнительные видео-ресурсы ComfyUI после базовой установки.
-echo   --skip-assets  Пропустить XTTS release assets и предзагрузку install_models.cmd.
-echo   --help         Показать эту справку.
+echo   --no-pause            Не ждать нажатия клавиши в конце.
+echo   --skip-video-models   Пропустить большие модели/ресурсы ComfyUI для изображений и видео.
+echo   --no-video            То же самое, что --skip-video-models.
+echo   --with-video          Совместимость со старым запуском; теперь image/video модели ставятся по умолчанию.
+echo   --skip-assets         Пропустить XTTS release assets и предзагрузку install_models.cmd.
+echo   --help                Показать эту справку.
 echo.
 echo При запуске из git-клона установщик пробует безопасно выполнить git pull --ff-only,
 echo только если есть upstream и нет локальных изменений. Если изменения найдены,
 echo автообновление пропускается без перезаписи файлов.
 echo Базовый ComfyUI portable проверяется и ремонтируется автоматически; сломанная
 echo папка ComfyUI_windows_portable переименовывается в backup установщиком ComfyUI.
-echo Большие видео-модели не входят в базовую установку и ставятся только через --with-video.
+echo По умолчанию установщик также скачивает image/video модели и доп. ресурсы ComfyUI.
+echo Повторный запуск безопасен: существующие модели не перезаписываются без необходимости.
 exit /b 0
 
 :ensure_python310
@@ -307,37 +312,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%A
 if errorlevel 1 exit /b 1
 exit /b 0
 
-:maybe_install_video_resources
+:install_default_video_resources
 echo.
+if defined SKIP_VIDEO_MODELS (
+  echo Пропускаю большие image/video модели и дополнительные ресурсы ComfyUI, потому что указан --skip-video-models/--no-video.
+  exit /b 0
+)
 if defined WITH_VIDEO (
-  call :install_video_resources
-  exit /b 0
-)
-if defined NO_PAUSE (
-  echo Дополнительные видео-ресурсы не запрошены. Пропускаю установку видео-ресурсов ComfyUI.
-  exit /b 0
-)
-choice /C YN /N /M "Install optional ComfyUI video resources now? [Y/N] "
-if errorlevel 2 (
-  echo Дополнительные видео-ресурсы пропущены.
-  exit /b 0
+  echo Параметр --with-video больше не нужен: image/video модели ставятся по умолчанию.
 )
 call :install_video_resources
 exit /b 0
 
 :install_video_resources
 echo.
-echo Устанавливаю дополнительные видео-ресурсы ComfyUI. Ошибки здесь не отменяют установку XTTS.
+echo Устанавливаю image/video модели и дополнительные ресурсы ComfyUI. Ошибки здесь не отменяют установку XTTS.
 if exist "install_optional_video_resources.cmd" (
   call install_optional_video_resources.cmd --no-pause
 ) else (
-  echo ПРЕДУПРЕЖДЕНИЕ: install_optional_video_resources.cmd не найден. Пропускаю дополнительные ресурсы.
+  echo ПРЕДУПРЕЖДЕНИЕ: install_optional_video_resources.cmd не найден. Пропускаю image/video ресурсы.
   exit /b 0
 )
 if errorlevel 1 (
-  echo ПРЕДУПРЕЖДЕНИЕ: Установка дополнительных видео-ресурсов сообщила об ошибках, но базовая установка XTTS завершена.
+  echo ПРЕДУПРЕЖДЕНИЕ: Установка image/video ресурсов сообщила об ошибках, но базовая установка XTTS завершена.
 ) else (
-  echo Установка дополнительных видео-ресурсов завершена.
+  echo Установка image/video ресурсов завершена.
 )
 exit /b 0
 
