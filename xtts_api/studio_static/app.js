@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-group-media-section-order-fallback";
+﻿const FRONTEND_BUILD = "2026-05-13-settings-aspect-timeline-fallback";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -393,7 +393,8 @@ function setImageQualityPreset(quality, { updateFields = true } = {}) {
 }
 
 function updateResolvedImageSettingsHint() {
-  const resolved = resolvedImagePreset();
+  const aspect = $("imageAspectRatio")?.value || state.project?.settings?.image_aspect_ratio || "vertical";
+  const resolved = resolvedImagePreset(undefined, aspect);
   const hint = $("imageResolvedSettings");
   const provider = $("imageProvider")?.value || state.project?.settings?.image_provider || "comfyui";
   const model = $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl";
@@ -2863,6 +2864,7 @@ function renderGroupMediaTimeline(card, group) {
   const host = card?.querySelector?.(".groupMediaTimelineHost");
   const timeline = window.XTTSStudio?.GroupMediaTimeline;
   if (!host) return;
+  host.dataset.timelineRenderAttempted = "1";
   const showTimelineFallback = (message) => {
     host.innerHTML = `
       <div class="groupMediaTimelineHead">
@@ -2891,10 +2893,14 @@ function renderGroupMediaTimeline(card, group) {
       timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId, chunks });
     } catch (err) {
       console.error("Group media timeline render failed", err);
-      showTimelineFallback(err?.message || "ошибка отрисовки таймлайна");
+      showTimelineFallback(err?.stack || err?.message || "ошибка отрисовки таймлайна");
     }
   };
   renderFromRows();
+  if (!host.querySelector(".groupMediaTimelineLane, .groupMediaTimelineFallback")) {
+    showTimelineFallback("отрисовка таймлайна не заменила индикатор загрузки. Проверьте консоль браузера и обновите страницу без кэша.");
+    return;
+  }
   try {
     timeline.bind(host, card, group, renderFromRows, {
       chunks,
@@ -2922,7 +2928,7 @@ function renderGroupMediaTimeline(card, group) {
     });
   } catch (err) {
     console.error("Group media timeline bind failed", err);
-    showTimelineFallback(err?.message || "ошибка подключения таймлайна");
+    showTimelineFallback(err?.stack || err?.message || "ошибка подключения таймлайна");
   }
 }
 
