@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-group-preview-progressive-subtitles"
+STUDIO_BUILD = "2026-05-13-looped-group-preview-frame-export"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -5343,16 +5343,23 @@ def export_dimensions(project: dict[str, Any], payload: ExportRequest) -> tuple[
     orientation = str(payload.orientation or "auto").strip().lower()
     if orientation not in {"auto", "landscape", "portrait", "square"}:
         orientation = "auto"
+    img_settings = image_settings(project)
+    source_width = int(img_settings.get("width") or DEFAULT_SETTINGS.get("image_width") or 896)
+    source_height = int(img_settings.get("height") or DEFAULT_SETTINGS.get("image_height") or 1152)
     if orientation == "auto":
-        img_settings = image_settings(project)
-        orientation = "landscape" if img_settings.get("aspect_ratio") == "horizontal" else "portrait"
+        if source_width > 0 and source_height > 0:
+            orientation = "landscape" if source_width >= source_height else "portrait"
+        else:
+            orientation = "landscape" if img_settings.get("aspect_ratio") == "horizontal" else "portrait"
     res = str(payload.resolution or "720p").strip().lower()
     long_edge = 1080 if "1080" in res else 720
     if orientation == "square":
         return long_edge, long_edge, orientation
     if orientation == "portrait":
-        return int(round(long_edge * 9 / 16)) // 2 * 2, long_edge, orientation
-    return long_edge, int(round(long_edge * 9 / 16)) // 2 * 2, orientation
+        ratio = (source_width / source_height) if source_width > 0 and source_height > 0 and source_width < source_height else 9 / 16
+        return int(round(long_edge * ratio)) // 2 * 2, long_edge, orientation
+    ratio = (source_height / source_width) if source_width > 0 and source_height > 0 and source_width >= source_height else 9 / 16
+    return long_edge, int(round(long_edge * ratio)) // 2 * 2, orientation
 
 
 def group_time_ranges(project: dict[str, Any]) -> list[tuple[dict[str, Any], float, float]]:

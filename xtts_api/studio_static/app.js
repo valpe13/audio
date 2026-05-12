@@ -2715,8 +2715,8 @@ function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk =
   const syncPlaybackVideo = () => {
     const video = preview.querySelector("video");
     if (!video || !isPlayback || !item) return;
-    const offset = Math.max(0, Number(time || 0) - Number(item.start_offset_sec || 0));
-    try { if (Math.abs((video.currentTime || 0) - offset) > 0.2) video.currentTime = Math.min(Math.max(0, offset), Math.max(0.1, video.duration || offset || 0.1)); } catch (_) { /* best-effort preview seek */ }
+    const offset = loopedVideoOffset(item, time, video);
+    try { if (Math.abs((video.currentTime || 0) - offset) > 0.2) video.currentTime = offset; } catch (_) { /* best-effort preview seek */ }
     if (isPlaying) video.play?.().catch?.(() => {});
     else video.pause?.();
   };
@@ -2743,10 +2743,13 @@ function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk =
     syncPlaybackVideo();
     return;
   }
+  const targetFrame = targetFrameDimensions();
+  const frameClass = targetFrame.orientation === "horizontal" ? "previewMediaFrame horizontal" : "previewMediaFrame";
+  const frameStyle = `--target-frame-aspect:${targetFrame.width} / ${targetFrame.height}`;
   const media = item.type === "video"
     ? `<video src="${escapeHtml(url)}" ${isPlayback ? "" : "controls"} muted loop playsinline data-preview-media-id="${escapeHtml(item.id || "")}" style="object-fit:${fit}"></video>`
     : `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="object-fit:${fit}" />`;
-  preview.innerHTML = `<div class="groupMediaPreviewStage">${media}<div class="groupMediaPreviewOverlaySlot">${overlay}</div></div><small>${escapeHtml(label)} · ${escapeHtml(timeLabel + chunkLabel)}</small>`;
+  preview.innerHTML = `<div class="groupMediaPreviewStage"><div class="${frameClass}" style="${escapeHtml(frameStyle)}">${media}<div class="groupMediaPreviewOverlaySlot">${overlay}</div></div></div><small>${escapeHtml(label)} · ${escapeHtml(timeLabel + chunkLabel)}</small>`;
   preview.dataset.previewKey = previewKey;
   syncPlaybackVideo();
 }
@@ -2761,8 +2764,8 @@ function playGroupMediaPreview(card, item, localTimeSec = 0) {
   renderGroupTimelinePreview(card, { item, subtitles: [], chunk: null, time: localTimeSec, mode: "playback" });
   const video = card?.querySelector?.(".groupMediaPreview video");
   if (!video) return;
-  const offset = Math.max(0, Number(localTimeSec || 0) - Number(item?.start_offset_sec || 0));
-  try { video.currentTime = Math.min(Math.max(0, offset), Math.max(0.1, video.duration || offset || 0.1)); } catch (_) { /* best-effort preview seek */ }
+  const offset = loopedVideoOffset(item, localTimeSec, video);
+  try { video.currentTime = offset; } catch (_) { /* best-effort preview seek */ }
   video.muted = true;
   video.play?.().catch?.(() => {});
 }

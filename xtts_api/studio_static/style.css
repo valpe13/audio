@@ -261,16 +261,18 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaPreviewStage { position: relative; display: grid; place-items: center; width: 100%; min-height: 220px; max-height: 420px; border-radius: 10px; overflow: hidden; background: #050711; }
 .groupMediaPreviewStage.empty { border: 1px dashed #3a4359; }
 .groupMediaPreview img, .groupMediaPreview video { max-width: 100%; max-height: 420px; width: auto; height: auto; object-fit: contain; border-radius: 10px; }
-.groupMediaPreviewStage > img, .groupMediaPreviewStage > video { width: auto; height: auto; max-width: 100%; max-height: 420px; border-radius: 0; object-fit: contain; }
+.groupMediaPreviewStage .previewMediaFrame { position: relative; inset: auto; width: min(100%, 236px); height: auto; max-height: 420px; aspect-ratio: var(--target-frame-aspect, 9 / 16); }
+.groupMediaPreviewStage .previewMediaFrame.horizontal { width: min(100%, 720px); }
+.groupMediaPreviewStage .previewMediaFrame > img, .groupMediaPreviewStage .previewMediaFrame > video { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; object-fit: contain; }
 .groupMediaPreview small { color: #aeb7c8; font-family: Consolas, monospace; overflow-wrap: anywhere; }
 .groupMediaPreviewEmpty { display: grid; gap: .35rem; place-items: center; padding: .8rem; color: #aeb7c8; text-align: center; }
 .groupMediaPreviewOverlaySlot { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-.groupMediaPreviewSubtitles { position: absolute; inset: 0; z-index: 3; pointer-events: none; display: grid; padding: 5%; box-sizing: border-box; }
-.groupMediaPreviewSubtitle { display: flex; justify-content: center; width: 100%; }
-.groupMediaPreviewSubtitle.pos-top { align-self: start; }
-.groupMediaPreviewSubtitle.pos-center { align-self: center; }
-.groupMediaPreviewSubtitle.pos-bottom { align-self: end; }
-.groupMediaPreviewSubtitle span { display: inline-block; max-width: min(92%, 1100px); padding: .18em .45em; border-radius: .28em; line-height: 1.2; text-align: center; white-space: pre-wrap; overflow-wrap: anywhere; }
+.groupMediaPreviewSubtitles { position: absolute; inset: 0; z-index: 3; pointer-events: none; padding: clamp(10px, 5%, 28px); box-sizing: border-box; overflow: hidden; }
+.groupMediaPreviewSubtitle { position: absolute; left: clamp(8px, 5%, 32px); right: clamp(8px, 5%, 32px); display: flex; justify-content: center; overflow: hidden; }
+.groupMediaPreviewSubtitle.pos-top { top: clamp(8px, 5%, 32px); align-items: flex-start; }
+.groupMediaPreviewSubtitle.pos-center { top: 50%; transform: translateY(-50%); align-items: center; }
+.groupMediaPreviewSubtitle.pos-bottom { bottom: clamp(8px, 5%, 32px); align-items: flex-end; }
+.groupMediaPreviewSubtitle span { display: inline-block; max-width: 100%; max-height: 100%; padding: .18em .45em; border-radius: .28em; line-height: 1.16; text-align: center; white-space: normal; overflow-wrap: anywhere; word-break: normal; overflow: hidden; box-sizing: border-box; }
 .groupSettingsStub { padding: .9rem; border: 1px dashed #8b6b22; border-radius: 12px; background: #2c240f; color: #ffdda1; font-weight: 800; }
 .groupImagePanel { display: grid; gap: .85rem; padding: .85rem; border: 1px solid #30384d; border-radius: 14px; background: #0f131d; }
 .groupImagePanel.image-done, .groupImagePanel.image-fallback { border-color: #2d8142; background: #101b15; }
@@ -293,11 +295,13 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupImagePrompts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #dce6f7; font-family: Consolas, monospace; line-height: 1.45; }
 .previewPlaceholder { display: grid; gap: .9rem; }
 .previewStageStub { display: grid; place-items: center; min-height: 520px; border: 1px solid #2b3244; border-radius: 18px; background: radial-gradient(circle at 50% 18%, rgba(109,140,255,.16), transparent 34%), #0f131d; }
-.phoneFrameStub { width: min(320px, 80vw); aspect-ratio: 9 / 16; border: 2px solid #5269bd; border-radius: 28px; display: grid; place-items: center; align-content: center; gap: .7rem; padding: 1.2rem; text-align: center; background: linear-gradient(180deg, #141a28, #080b11); background-size: cover; background-position: center; box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); position: relative; overflow: hidden; }
-.phoneFrameStub.horizontal { width: min(720px, 86vw); aspect-ratio: 16 / 9; border-radius: 22px; }
+.phoneFrameStub { width: min(360px, 80vw); aspect-ratio: var(--target-frame-aspect, 9 / 16); border: 2px solid #5269bd; border-radius: 28px; display: grid; place-items: center; align-content: center; gap: .7rem; padding: 0; text-align: center; background: linear-gradient(180deg, #141a28, #080b11); background-size: cover; background-position: center; box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); position: relative; overflow: hidden; }
+.phoneFrameStub.horizontal { width: min(720px, 86vw); aspect-ratio: var(--target-frame-aspect, 16 / 9); border-radius: 22px; }
 .phoneFrameStub.hasImage, .phoneFrameStub.hasVideo { text-shadow: 0 2px 10px rgba(0,0,0,.8); align-content: end; }
+.previewMediaFrame { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; aspect-ratio: var(--target-frame-aspect, 9 / 16); overflow: hidden; background: #080b11; background-size: contain; background-repeat: no-repeat; background-position: center; }
+.previewMediaFrame.horizontal { aspect-ratio: var(--target-frame-aspect, 16 / 9); }
 .previewVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #080b11; }
-.previewTextOverlay { position: relative; z-index: 1; display: grid; gap: .7rem; place-items: center; width: 100%; }
+.previewTextOverlay { position: relative; z-index: 1; display: grid; gap: .7rem; place-items: center; width: 100%; padding: 1.2rem; box-sizing: border-box; }
 .phoneFrameStub.hasVideo .previewTextOverlay { align-self: end; padding: .75rem; border-radius: 16px; background: linear-gradient(180deg, transparent, rgba(0,0,0,.62)); }
 .phoneFrameStub span { color: #ffe66f; font-family: Consolas, monospace; }
 .phoneFrameStub strong { color: #eef1f7; font-size: 1.1rem; }
