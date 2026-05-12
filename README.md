@@ -30,6 +30,18 @@ Update an existing one-file install in-place:
 audio_xtts_universal_installer.cmd --no-pause
 ```
 
+If ComfyUI portable is broken or incomplete, for example with `ModuleNotFoundError: No module named 'comfy.ldm.models'`, run this one-click updater/repair file from the repository root:
+
+```bat
+update_repair_comfyui.cmd
+```
+
+It performs a safe `git pull --ff-only` only when the folder is a clean git checkout, then runs `xtts_api\install_comfyui_portable.cmd --yes --force`. The `--force` repair mode renames an invalid `ComfyUI_windows_portable/` folder to a timestamped backup before installing a clean runtime; it does not delete the old folder. If Git is missing, the folder is not a git checkout, or local changes/untracked files are present, the script prints a Russian warning and skips the pull instead of overwriting user data. To also run optional video/model resource installers after the ComfyUI repair, use:
+
+```bat
+update_repair_comfyui.cmd --with-video
+```
+
 The universal installer treats an existing [`audio/`](audio/) folder as an update. It preserves local user data and machine-specific state, including [`xtts_api/studio_projects/`](xtts_api/studio_projects/), [`xtts_api/reference_audio/`](xtts_api/reference_audio/), [`xtts_api/.venv/`](xtts_api/.venv/), [`.installer_cache/`](.installer_cache/), [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/), local configs, and [`project.secrets.json`](README.md) files. Unless [`--skip-assets`](README.md) is supplied, it re-runs [`install_models.cmd --no-pause`](install_models.cmd) after updating source code; that script is intended to be idempotent and reuses existing dependencies/models when they are already present.
 
 Optional ComfyUI video resources can be installed during setup/update:

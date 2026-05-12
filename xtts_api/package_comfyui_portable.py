@@ -28,7 +28,23 @@ CHUNK_SIZE = 1024 * 1024
 
 
 DEFAULT_EXCLUDE_PATTERNS = [
-    "ComfyUI/models/**",
+    "ComfyUI/models/checkpoints/**",
+    "ComfyUI/models/clip/**",
+    "ComfyUI/models/clip_vision/**",
+    "ComfyUI/models/configs/**",
+    "ComfyUI/models/controlnet/**",
+    "ComfyUI/models/diffusers/**",
+    "ComfyUI/models/embeddings/**",
+    "ComfyUI/models/gligen/**",
+    "ComfyUI/models/hypernetworks/**",
+    "ComfyUI/models/loras/**",
+    "ComfyUI/models/photomaker/**",
+    "ComfyUI/models/style_models/**",
+    "ComfyUI/models/unet/**",
+    "ComfyUI/models/upscale_models/**",
+    "ComfyUI/models/vae/**",
+    "ComfyUI/models/vae_approx/**",
+    "ComfyUI/models/animatediff_models/**",
     "ComfyUI/output/**",
     "ComfyUI/input/**",
     "ComfyUI/temp/**",
@@ -122,7 +138,7 @@ def should_exclude(rel: str, patterns: list[str]) -> bool:
     parts = rel_lower.split("/")
     if "__pycache__" in parts or ".git" in parts:
         return True
-    if any(part in {"models", "output", "input", "temp", "cache", ".cache", "hf_cache", "torch_cache", "huggingface"} for part in parts):
+    if any(part in {"output", "input", "temp", "cache", ".cache", "hf_cache", "torch_cache", "huggingface"} for part in parts):
         return True
     if rel_lower.endswith((".pyc", ".pyo", ".log", ".tmp", ".temp")):
         return True

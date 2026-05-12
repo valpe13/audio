@@ -182,6 +182,17 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 20rem 1.2rem 18rem; }
 .groupPromptGrid textarea { min-height: 7.5rem; }
 .groupPromptGrid input, .groupPromptGrid textarea { background: #080d14; }
 .groupPromptSource { color: #ffe66f; font-family: Consolas, monospace; }
+.groupChunkMembership { padding: .65rem; border: 1px solid #293147; border-radius: 12px; background: rgba(9,13,20,.45); }
+.groupChunkMembership summary { cursor: pointer; color: #ffe66f; font-weight: 900; }
+.chunkPickGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; max-height: 220px; overflow-y: auto; margin-top: .55rem; }
+.chunkPick { display: flex; align-items: center; gap: .4rem; margin: 0; padding: .38rem .45rem; border: 1px solid #293147; border-radius: 9px; background: #0f131d; font-size: .78rem; color: #dce6f7; }
+.groupMediaEditor { display: grid; gap: .65rem; margin-top: .5rem; padding: .7rem; border: 1px solid #31426a; border-radius: 12px; background: rgba(18,24,44,.55); }
+.groupMediaEditor h4 { margin: 0; color: #9fb3ff; }
+.groupMediaList { display: grid; gap: .55rem; }
+.groupMediaItem { display: grid; grid-template-columns: .6fr 1.6fr 1fr .8fr .7fr .7fr .7fr auto; gap: .45rem; align-items: end; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
+.groupMediaItem label { margin: 0; font-size: .74rem; }
+.groupMediaItem input, .groupMediaItem select { padding: .42rem; }
+.groupMediaEmpty { color: #aeb7c8; }
 .groupSettingsStub { padding: .9rem; border: 1px dashed #8b6b22; border-radius: 12px; background: #2c240f; color: #ffdda1; font-weight: 800; }
 .groupImagePanel { display: grid; gap: .85rem; padding: .85rem; border: 1px solid #30384d; border-radius: 14px; background: #0f131d; }
 .groupImagePanel.image-done, .groupImagePanel.image-fallback { border-color: #2d8142; background: #101b15; }
@@ -509,5 +520,5 @@ a { color: #9fb3ff; }
 
 @media (max-width: 1400px) { main { padding-right: 1.2rem; } .musicLibraryPanel { position: sticky; top: calc(var(--header-height) + .5rem); bottom: auto; width: auto; min-height: 0; max-height: 18rem; margin: .8rem 1.2rem 0 18rem; } .musicLibraryList { max-height: 9rem; } }
 @media (max-width: 1200px) { main { padding-left: 1.2rem; } .chunkNavigator { position: sticky; top: calc(var(--header-height) + .5rem); bottom: auto; width: auto; min-height: 0; max-height: 16rem; margin: .8rem 1.2rem 0; } .chunkNavList { height: 12rem; } .musicLibraryPanel { margin-left: 1.2rem; } }
-@media (max-width: 900px) { :root { --header-height: 7.6rem; } .grid.two { grid-template-columns: 1fr; } header { flex-direction: column; align-items: stretch; } #status { min-width: 0; } }
+@media (max-width: 900px) { :root { --header-height: 7.6rem; } .grid.two, .chunkPickGrid, .groupMediaItem { grid-template-columns: 1fr; } header { flex-direction: column; align-items: stretch; } #status { min-width: 0; } }
 

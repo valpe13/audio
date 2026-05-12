@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-11-grok-loop-postprocess-v2" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-workflow-editing-v1" />
   </head>
   <body>
     <header>
@@ -276,6 +276,7 @@
                   <select id="imageProvider">
                     <option value="placeholder">placeholder</option>
                     <option value="comfyui">comfyui</option>
+                    <option value="grok">grok / xAI image API</option>
                   </select>
                 </label>
                 <label>Model
@@ -285,9 +286,11 @@
                     <option value="juggernautxl">juggernautxl</option>
                     <option value="dreamshaperxl">dreamshaperxl</option>
                     <option value="flux">flux</option>
+                    <option value="grok">grok</option>
                     <option value="custom">custom</option>
                   </select>
                 </label>
+                <label>Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
                 <label>Seed <input id="imageSeed" type="number" step="1" value="0" /></label>
                 <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
                 <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
@@ -444,6 +447,7 @@
             </div>
             <div class="groupAiControls">
               <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
+              <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
               <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
               <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Generate all SVD/SVD-XT videos</button>
               <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
@@ -524,7 +528,7 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/app.js?v=2026-05-11-grok-loop-postprocess-v2"></script>
+    <script src="/studio/app.js?v=2026-05-12-studio-workflow-editing-v1"></script>
   </body>
 </html>
 

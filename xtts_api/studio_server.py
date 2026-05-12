@@ -54,7 +54,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-11-grok-loop-postprocess-v2"
+STUDIO_BUILD = "2026-05-12-studio-workflow-editing-v1"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -64,6 +64,7 @@ DEFAULT_SILERO_API_URL = "http://127.0.0.1:7866"
 REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors"
 SVD_XT_CHECKPOINT = "svd_xt.safetensors"
 GROK_IMAGINE_VIDEO_MODEL = "grok-imagine-video"
+GROK_IMAGE_MODEL = "grok-2-image"
 ANIMATEDIFF_MOTION_MODEL = "mm_sd_v15_v2.ckpt"
 ANIMATEDIFF_SDXL_ENV_MODEL = "XTTS_ANIMATEDIFF_SDXL_MOTION_MODEL"
 ANIMATEDIFF_SDXL_MODEL_CANDIDATES = ("hsxl_temporal_layers.safetensors", "hotshotxl.safetensors", "mm_sdxl_v10_beta.ckpt", "mm_sdxl_v10_beta.safetensors")
@@ -264,7 +265,7 @@ def source_image_aspect_ratio(settings: dict[str, Any], image_meta: dict[str, An
 
 def format_grok_imagine_video_prompt(group: dict[str, Any]) -> str:
     base = truncate_text(
-        group.get("animation_positive_prompt") or group.get("visual_prompt") or group.get("summary") or group.get("title"),
+        group.get("grok_video_prompt") or group.get("animation_positive_prompt") or group.get("visual_prompt") or group.get("summary") or group.get("title"),
         1200,
     )
     if not base:
@@ -356,6 +357,7 @@ DEFAULT_SETTINGS = {
     "seed": 4242,
     "image_provider": "comfyui",
     "image_model": "realvisxl",
+    "image_grok_model": GROK_IMAGE_MODEL,
     "image_quality_preset": "balanced",
     "image_aspect_ratio": "vertical",
     "image_width": 896,
@@ -430,6 +432,14 @@ class ChunkUpdate(BaseModel):
     order: int | None = None
 
 
+class ChunkCreate(BaseModel):
+    text: str = ""
+    tts_text: str | None = None
+    pause_after: float = Field(default=0.25, ge=0.0, le=30.0)
+    insert_after_chunk_id: str | None = None
+    order: int | None = None
+
+
 class SettingsUpdate(BaseModel):
     reference_path: str | None = None
     music_path: str | None = None
@@ -448,6 +458,7 @@ class SettingsUpdate(BaseModel):
     seed: int | None = None
     image_provider: str | None = None
     image_model: str | None = None
+    image_grok_model: str | None = None
     image_quality_preset: str | None = None
     image_aspect_ratio: str | None = None
     image_width: int | None = Field(default=None, ge=64, le=4096)
@@ -558,17 +569,47 @@ class VideoGroupsAiRequest(BaseModel):
     instruction: Optional[str] = None
 
 
+class GroupMediaItem(BaseModel):
+    id: str | None = None
+    type: str = Field(default="image")
+    path: str = ""
+    url: str | None = None
+    label: str | None = None
+    role: str = Field(default="main")
+    start_offset_sec: float = Field(default=0.0, ge=0.0, le=36000.0)
+    duration_sec: float = Field(default=0.0, ge=0.0, le=36000.0)
+    fit: str = Field(default="cover")
+    volume: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
 class GroupUpdate(BaseModel):
     title: str | None = None
     summary: str | None = None
+    chunk_ids: list[str] | None = None
     visual_prompt: str | None = None
     negative_prompt: str | None = None
     animation_positive_prompt: str | None = None
     animation_negative_prompt: str | None = None
+    grok_video_prompt: str | None = None
     mood: str | None = None
     scene_type: str | None = None
     video_motion_intensity: str | None = None
     video_loop_notes: str | None = None
+    media_items: list[GroupMediaItem] | None = None
+    media_layout: str | None = None
+    default_media_duration_sec: float | None = Field(default=None, ge=0.0, le=36000.0)
+
+
+class GroupCreate(BaseModel):
+    title: str = ""
+    summary: str = ""
+    chunk_ids: list[str] = Field(default_factory=list)
+    insert_after_group_id: str | None = None
+
+
+class GroupMoveRequest(BaseModel):
+    direction: str | None = None
+    order: int | None = None
 
 
 XAI_VIDEO_GROUPS_ATTEMPTS = 3
@@ -1093,6 +1134,7 @@ def fallback_video_groups(chunks: list[dict[str, Any]], max_chunks_per_group: in
             "negative_prompt": negative_prompt,
             "animation_positive_prompt": animation_positive_prompt,
             "animation_negative_prompt": DEFAULT_ANIMATION_NEGATIVE_PROMPT,
+            "grok_video_prompt": format_grok_imagine_video_prompt({"animation_positive_prompt": animation_positive_prompt, "visual_prompt": visual_prompt, "summary": summary}),
             "mood": "calm",
             "scene_type": "sleep lecture",
             "order": number - 1,
@@ -1127,6 +1169,87 @@ def normalize_animation_negative_prompt(raw_group: dict[str, Any]) -> str:
     if prompt:
         return prompt
     return DEFAULT_ANIMATION_NEGATIVE_PROMPT
+
+
+def normalize_grok_video_prompt(raw_group: dict[str, Any]) -> str:
+    prompt = truncate_text(raw_group.get("grok_video_prompt"), 1800)
+    if prompt:
+        return prompt
+    return format_grok_imagine_video_prompt(raw_group)
+
+
+def normalize_group_media_duration(value: Any, fallback: float = 0.0) -> float:
+    try:
+        number = float(fallback if value in (None, "") else value)
+    except (TypeError, ValueError):
+        number = float(fallback or 0.0)
+    if not math.isfinite(number):
+        number = float(fallback or 0.0)
+    return round(max(0.0, min(36000.0, number)), 3)
+
+
+def normalize_group_media_layout(value: Any) -> str:
+    layout = str(value or "sequence").strip().lower()
+    return layout if layout in {"sequence", "overlay", "background", "manual"} else "sequence"
+
+
+def normalize_group_media_item(raw_item: Any, idx: int = 0) -> dict[str, Any] | None:
+    if not isinstance(raw_item, dict):
+        return None
+    media_type = str(raw_item.get("type") or raw_item.get("media_type") or "image").strip().lower()
+    if media_type not in {"image", "video"}:
+        media_type = "video" if str(raw_item.get("path") or raw_item.get("url") or "").lower().endswith((".mp4", ".webm", ".gif", ".mov")) else "image"
+    path = str(raw_item.get("path") or "").strip()
+    url = str(raw_item.get("url") or "").strip()
+    item: dict[str, Any] = {
+        "id": str(raw_item.get("id") or uuid.uuid4().hex[:10]),
+        "type": media_type,
+        "path": path,
+        "url": url,
+        "label": truncate_text(raw_item.get("label") or Path(path).name or f"Media {idx + 1}", 120),
+        "role": truncate_text(raw_item.get("role") or "main", 80),
+        "start_offset_sec": normalize_group_media_duration(raw_item.get("start_offset_sec"), 0.0),
+        "duration_sec": normalize_group_media_duration(raw_item.get("duration_sec"), 0.0),
+        "fit": str(raw_item.get("fit") or "cover").strip().lower(),
+        "order": idx,
+    }
+    if item["fit"] not in {"cover", "contain", "fill"}:
+        item["fit"] = "cover"
+    if raw_item.get("volume") is not None:
+        try:
+            item["volume"] = round(max(0.0, min(2.0, float(raw_item.get("volume") or 0.0))), 3)
+        except (TypeError, ValueError):
+            item["volume"] = 1.0
+    return item
+
+
+def normalize_group_media_items(raw_items: Any, group: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if isinstance(raw_items, list):
+        for idx, raw_item in enumerate(raw_items):
+            item = normalize_group_media_item(raw_item, idx)
+            if item:
+                items.append(item)
+    group = group if isinstance(group, dict) else {}
+    legacy: list[dict[str, Any]] = []
+    image_meta = group.get("image") if isinstance(group.get("image"), dict) else {}
+    video_meta = group.get("video") if isinstance(group.get("video"), dict) else {}
+    if image_meta.get("path") or image_meta.get("url"):
+        legacy.append({"id": "legacy_image", "type": "image", "path": image_meta.get("path", ""), "url": image_meta.get("url", ""), "label": "Generated image", "role": "background", "duration_sec": 0.0})
+    if video_meta.get("path") or video_meta.get("url"):
+        legacy.append({"id": "legacy_video", "type": "video", "path": video_meta.get("path", ""), "url": video_meta.get("url", ""), "label": "Generated video", "role": "background", "duration_sec": float(video_meta.get("duration_sec") or 0.0)})
+    seen = {str(item.get("path") or item.get("url") or item.get("id")) for item in items}
+    for raw_item in legacy:
+        key = str(raw_item.get("path") or raw_item.get("url") or raw_item.get("id"))
+        if key in seen:
+            continue
+        item = normalize_group_media_item(raw_item, len(items))
+        if item:
+            items.append(item)
+            seen.add(key)
+    for idx, item in enumerate(items):
+        item["order"] = idx
+    return items
 
 
 def compact_ai_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1203,11 +1326,10 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
             if require_all_chunks:
                 raise ValueError("Group contains no valid chunk_ids")
             continue
-        expected_slice = ordered_ids[cursor:cursor + len(ids)]
-        if ids != expected_slice:
-            if require_all_chunks:
+        if require_all_chunks:
+            expected_slice = ordered_ids[cursor:cursor + len(ids)]
+            if ids != expected_slice:
                 raise ValueError("Groups must preserve chunk order and use contiguous chunk ranges")
-            continue
         number = len(normalized) + 1
         item = {
             "id": f"video_group_{number:03d}",
@@ -1218,6 +1340,7 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
             "negative_prompt": truncate_text(raw_group.get("negative_prompt"), 500),
             "animation_positive_prompt": normalize_animation_positive_prompt(raw_group),
             "animation_negative_prompt": normalize_animation_negative_prompt(raw_group),
+            "grok_video_prompt": normalize_grok_video_prompt(raw_group),
             "mood": truncate_text(raw_group.get("mood"), 80),
             "scene_type": truncate_text(raw_group.get("scene_type"), 80),
             "order": number - 1,
@@ -1231,6 +1354,9 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
             item["image"] = normalize_group_image_meta(raw_group.get("image"))
         if isinstance(raw_group.get("video"), dict):
             item["video"] = normalize_group_video_meta(raw_group.get("video"))
+        item["media_items"] = normalize_group_media_items(raw_group.get("media_items"), item)
+        item["media_layout"] = normalize_group_media_layout(raw_group.get("media_layout"))
+        item["default_media_duration_sec"] = normalize_group_media_duration(raw_group.get("default_media_duration_sec"), 0.0)
         if raw_group.get("repair_note"):
             item["repair_note"] = truncate_text(raw_group.get("repair_note"), 500)
         normalized.append(item)
@@ -1393,6 +1519,7 @@ def repair_ai_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], expect
             "negative_prompt": truncate_text(raw_group.get("negative_prompt"), 500),
             "animation_positive_prompt": normalize_animation_positive_prompt(raw_group),
             "animation_negative_prompt": normalize_animation_negative_prompt(raw_group),
+            "grok_video_prompt": normalize_grok_video_prompt(raw_group),
             "mood": truncate_text(raw_group.get("mood"), 80),
             "scene_type": truncate_text(raw_group.get("scene_type"), 80),
             "order": number - 1,
@@ -1539,6 +1666,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
             "English comma-separated animation negative prompt, 18-35 concise terms. Exclude character motion, fast action, cuts, zooms, pans, camera shake, "
             "morphing, warping, new objects appearing, objects disappearing, non-looping motion, one-way motion, sudden ending, start/end mismatch, object popping, text, subtitles, watermarks, jitter, and flicker artifacts."
         ),
+        "grok_video_prompt": "English Grok Imagine Video prompt, editable later; can reuse animation_positive_prompt but should stand alone and mention loop, locked camera, subtle ambient motion.",
         "mood": "2-6 English words describing the emotional tone",
         "scene_type": "2-6 English words describing the visual scene category",
     }
@@ -1548,7 +1676,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
         "output_schema": {"groups": [group_schema]},
         "rules": [
             "Root must be exactly an object with key groups.",
-            "Each group fields: id, title, summary, chunk_ids, visual_prompt, negative_prompt, animation_positive_prompt, animation_negative_prompt, mood, scene_type.",
+            "Each group fields: id, title, summary, chunk_ids, visual_prompt, negative_prompt, animation_positive_prompt, animation_negative_prompt, grok_video_prompt, mood, scene_type.",
             "Use every chunk exactly once.",
             "Do not omit any chunk id, even if a chunk is short or transitional.",
             "Keep original chunk order.",
@@ -1584,6 +1712,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
             "For landscape/environment scenes, animation_positive_prompt must say leaves, grass, water, or clouds move in a gentle cyclic pattern when those elements are visible.",
             "animation_positive_prompt must avoid character motion, gestures, walking, talking, fast action, cuts, zooms, pans, morphing, camera shake, new objects appearing, objects disappearing, text, and start/end mismatch.",
             "animation_negative_prompt must be English, comma-separated, and focused on preventing non-loop-friendly motion artifacts and scene changes; include cuts, jump cut, scene transition, camera zoom, camera pan, new objects appearing, objects disappearing, non-looping motion, one-way motion, sudden ending, start/end mismatch.",
+            "grok_video_prompt must be populated for every group and usable directly by Grok Imagine Video; if unsure, adapt animation_positive_prompt into one standalone prompt.",
         ],
         "ancient_riverside_visual_prompt_example_for_historical_scenes_only": (
             "A quiet realistic reconstruction of an ancient riverside settlement at dawn, with two linen-clad figures preparing clay vessels beside a low mud-brick wall. "
@@ -2428,6 +2557,7 @@ def normalize_arrangement(project: dict[str, Any]) -> None:
     arrangement = project.setdefault("arrangement", {})
     video = arrangement.setdefault("video", {})
     video["groups"] = normalize_video_groups(video.get("groups") if isinstance(video.get("groups"), list) else [], ordered_project_chunks(project))
+    migrate_ungrouped_chunks_to_video_groups(project)
     raw_speed_points = video.get("speed_envelope") if isinstance(video.get("speed_envelope"), list) else []
     speed_points: list[dict[str, float]] = []
     for point in raw_speed_points:
@@ -2661,6 +2791,20 @@ def normalize_arrangement(project: dict[str, Any]) -> None:
     music["tracks"] = flattened_tracks
 
 
+def migrate_ungrouped_chunks_to_video_groups(project: dict[str, Any]) -> None:
+    chunks = ordered_project_chunks(project)
+    valid_ids = chunk_order_ids(chunks)
+    groups = project.setdefault("arrangement", {}).setdefault("video", {}).setdefault("groups", [])
+    used = {chunk_id for group in groups if isinstance(group, dict) for chunk_id in group.get("chunk_ids", []) if chunk_id in valid_ids}
+    missing = [chunk_id for chunk_id in valid_ids if chunk_id not in used]
+    if not missing:
+        return
+    title = f"Manual group {len(groups) + 1}"
+    summary = truncate_text(" ".join(str(chunk.get("text") or "") for chunk in chunks if str(chunk.get("id") or "") in missing), 260)
+    groups.append(create_video_group_dict(title, summary, missing, order=len(groups), source="auto-repair"))
+    project["arrangement"]["video"]["groups"] = renumber_video_groups(groups)
+
+
 def envelope_values(points: list[dict[str, Any]], total_len: int, sr: int, base_volume: float) -> np.ndarray:
     if total_len <= 0:
         return np.zeros(0, dtype=np.float32)
@@ -2850,10 +2994,14 @@ def enrich_project(project: dict[str, Any]) -> dict[str, Any]:
 def image_settings(project: dict[str, Any]) -> dict[str, Any]:
     raw = project.get("settings", {}) if isinstance(project.get("settings"), dict) else {}
     provider = str(raw.get("image_provider") or DEFAULT_SETTINGS["image_provider"]).strip().lower()
-    if provider not in {"placeholder", "comfyui"}:
+    if provider not in {"placeholder", "comfyui", "grok", "xai"}:
         provider = "comfyui"
+    if provider == "xai":
+        provider = "grok"
     model = str(raw.get("image_model") or DEFAULT_SETTINGS["image_model"]).strip().lower()
-    if model not in {"realvisxl", "sdxl", "juggernautxl", "dreamshaperxl", "flux", "custom"}:
+    if provider == "grok":
+        model = "grok"
+    if model not in {"realvisxl", "sdxl", "juggernautxl", "dreamshaperxl", "flux", "custom", "grok"}:
         model = "custom"
     if model == "sdxl" and str(raw.get("image_model_checkpoint") or DEFAULT_SETTINGS["image_model_checkpoint"]).strip() == REALVISXL_CHECKPOINT:
         model = "realvisxl"
@@ -2900,6 +3048,7 @@ def image_settings(project: dict[str, Any]) -> dict[str, Any]:
     return {
         "provider": provider,
         "model": model,
+        "grok_model": str(raw.get("image_grok_model") or DEFAULT_SETTINGS["image_grok_model"]).strip() or GROK_IMAGE_MODEL,
         "quality_preset": quality_preset,
         "aspect_ratio": aspect_ratio,
         "width": max(64, min(4096, width)),
@@ -4158,17 +4307,55 @@ def update_group_prompts(project: dict[str, Any], group_id: str, payload: GroupU
         "negative_prompt": 1500,
         "animation_positive_prompt": 900,
         "animation_negative_prompt": 700,
+        "grok_video_prompt": 1800,
         "mood": 80,
         "scene_type": 80,
         "video_motion_intensity": 80,
         "video_loop_notes": 700,
     }
+    valid_chunk_ids = set(chunk_order_ids(ordered_project_chunks(project)))
     for key, value in data.items():
         if value is None:
+            continue
+        if key == "chunk_ids":
+            group["chunk_ids"] = [str(chunk_id) for chunk_id in value if str(chunk_id) in valid_chunk_ids]
+            continue
+        if key == "media_items":
+            group["media_items"] = normalize_group_media_items([item.dict() if hasattr(item, "dict") else item for item in value], group)
+            continue
+        if key == "media_layout":
+            group["media_layout"] = normalize_group_media_layout(value)
+            continue
+        if key == "default_media_duration_sec":
+            group["default_media_duration_sec"] = normalize_group_media_duration(value, 0.0)
             continue
         group[key] = truncate_text(value, limits.get(key, 500))
     normalize_arrangement(project)
     return find_video_group(project, group_id) or group
+
+
+def create_video_group_dict(title: str, summary: str, chunk_ids: list[str], *, order: int = 0, source: str = "manual") -> dict[str, Any]:
+    visual_prompt = truncate_text(summary or title or "Manual visual scene", 900)
+    animation_positive = build_animation_positive_prompt(summary, visual_prompt)
+    group = {
+        "id": f"video_group_{order + 1:03d}",
+        "title": truncate_text(title or f"Video group {order + 1}", 120),
+        "summary": truncate_text(summary, 600),
+        "chunk_ids": [str(chunk_id) for chunk_id in chunk_ids if str(chunk_id)],
+        "visual_prompt": visual_prompt,
+        "negative_prompt": DEFAULT_VIDEO_GROUP_NEGATIVE,
+        "animation_positive_prompt": animation_positive,
+        "animation_negative_prompt": DEFAULT_ANIMATION_NEGATIVE_PROMPT,
+        "grok_video_prompt": format_grok_imagine_video_prompt({"animation_positive_prompt": animation_positive, "visual_prompt": visual_prompt, "summary": summary, "title": title}),
+        "mood": "calm",
+        "scene_type": "sleep lecture",
+        "order": order,
+        "source": source,
+        "media_items": [],
+        "media_layout": "sequence",
+        "default_media_duration_sec": 0.0,
+    }
+    return group
 
 
 def find_video_group(project: dict[str, Any], group_id: str) -> dict[str, Any] | None:
@@ -4181,6 +4368,7 @@ def update_video_group_image(project: dict[str, Any], group_id: str, image_meta:
     if not group:
         raise RuntimeError("Video group not found")
     group["image"] = normalize_group_image_meta(image_meta)
+    group["media_items"] = normalize_group_media_items(group.get("media_items"), group)
     return group["image"]
 
 
@@ -4189,6 +4377,7 @@ def update_video_group_video(project: dict[str, Any], group_id: str, video_meta:
     if not group:
         raise RuntimeError("Video group not found")
     group["video"] = normalize_group_video_meta(video_meta)
+    group["media_items"] = normalize_group_media_items(group.get("media_items"), group)
     return group["video"]
 
 
@@ -4281,6 +4470,11 @@ def generate_group_placeholder_svg(project: dict[str, Any], group: dict[str, Any
 
 
 def generate_group_image(project: dict[str, Any], group: dict[str, Any], settings: dict[str, Any], prompt_bundle: dict[str, str]) -> dict[str, Any]:
+    if settings.get("provider") == "grok":
+        try:
+            return run_xai_grok_image_workflow(project, group, settings, prompt_bundle)
+        except Exception as exc:
+            return generate_group_placeholder_svg(project, group, settings, prompt_bundle, f"Grok image generation failed or endpoint schema unsupported: {exc}")
     if settings.get("provider") != "comfyui":
         return generate_group_placeholder_svg(project, group, settings, prompt_bundle)
     if settings.get("model") == "flux":
@@ -4323,6 +4517,70 @@ def generate_group_image(project: dict[str, Any], group: dict[str, Any], setting
         return run_comfyui_workflow(project, group, settings, prompt_bundle, workflow, output_prefix)
     except Exception as exc:
         return generate_group_placeholder_svg(project, group, settings, prompt_bundle, f"ComfyUI workflow template failed: {exc}")
+
+
+def extract_xai_image_url(response: Any) -> str:
+    if not isinstance(response, dict):
+        return ""
+    data = response.get("data")
+    if isinstance(data, list) and data:
+        first = data[0] if isinstance(data[0], dict) else {}
+        if first.get("url"):
+            return str(first.get("url") or "")
+        if first.get("b64_json"):
+            return "data:image/png;base64," + str(first.get("b64_json") or "")
+    image = response.get("image") if isinstance(response.get("image"), dict) else {}
+    return str(image.get("url") or response.get("url") or "")
+
+
+def save_xai_image_url(image_url: str, out: Path) -> None:
+    if image_url.startswith("data:image/"):
+        _header, encoded = image_url.split(",", 1)
+        out.write_bytes(base64.b64decode(encoded))
+        return
+    download_http_file(image_url, out, timeout=180.0)
+
+
+def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], settings: dict[str, Any], prompt_bundle: dict[str, str]) -> dict[str, Any]:
+    project_id = safe_project_id(str(project.get("id") or active_project_id()))
+    api_key = resolve_xai_api_key(project, project_id)
+    if not api_key:
+        raise RuntimeError("Grok/xAI API key is not configured; set a project key in XTTS Studio settings or XAI_API_KEY")
+    base_url = (os.environ.get("XAI_BASE_URL") or "https://api.x.ai/v1").rstrip("/")
+    model = str(settings.get("grok_model") or GROK_IMAGE_MODEL).strip() or GROK_IMAGE_MODEL
+    width = int(settings.get("width") or 1024)
+    height = int(settings.get("height") or 1024)
+    request_payload = {
+        "model": model,
+        "prompt": prompt_bundle.get("positive_prompt", ""),
+        "n": 1,
+        "response_format": "url",
+        "size": f"{width}x{height}",
+    }
+    response = xai_json_request(base_url, "/images/generations", api_key, method="POST", payload=request_payload, timeout=180.0)
+    image_url = extract_xai_image_url(response)
+    if not image_url:
+        raise RuntimeError(f"xAI image response did not include a URL or b64_json: {truncate_text(response, 700)}")
+    out_dir = project_images_dir(project_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{group.get('id', 'group')}_{int(time.time())}_grok.png"
+    save_xai_image_url(image_url, out)
+    path = rel_path(out)
+    now = time.time()
+    return {
+        "status": "ready",
+        "provider": "xai",
+        "model": model,
+        "aspect_ratio": settings.get("aspect_ratio"),
+        "width": width,
+        "height": height,
+        "path": path,
+        "url": f"/api/image?path={path}&v={int(out.stat().st_mtime)}",
+        "positive_prompt": prompt_bundle.get("positive_prompt", ""),
+        "negative_prompt": prompt_bundle.get("negative_prompt", ""),
+        "created_at": now,
+        "updated_at": now,
+    }
 
 
 def enriched_chunk_response(chunk_id: str, project_id: str | None = None) -> dict[str, Any]:
@@ -5024,7 +5282,9 @@ def build_visual_segment(project: dict[str, Any], group: dict[str, Any], duratio
     ffmpeg = locate_ffmpeg(project)
     video_meta = group.get("video") if isinstance(group.get("video"), dict) else {}
     image_meta = group.get("image") if isinstance(group.get("image"), dict) else {}
-    source_value = video_meta.get("path") or image_meta.get("path") or ""
+    media_items = normalize_group_media_items(group.get("media_items"), group)
+    selected_media = next((item for item in media_items if item.get("type") == "video" and item.get("path")), None) or next((item for item in media_items if item.get("path")), None)
+    source_value = (selected_media or {}).get("path") or video_meta.get("path") or image_meta.get("path") or ""
     source_path = resolve_user_path(source_value) if source_value else None
     if not source_path or not source_path.exists():
         return False
@@ -5538,6 +5798,36 @@ def enqueue_group_video_task(project: dict[str, Any], group_id: str, *, force: b
     return task
 
 
+def renumber_chunks(project: dict[str, Any]) -> None:
+    project["chunks"] = sorted([chunk for chunk in project.get("chunks", []) if isinstance(chunk, dict)], key=lambda c: c.get("order", 0))
+    for idx, chunk in enumerate(project["chunks"]):
+        chunk["order"] = idx
+
+
+def create_chunk_dict(project: dict[str, Any], payload: ChunkCreate, order: int) -> dict[str, Any]:
+    text = repair_mojibake_text(payload.text or "")[0]
+    tts_text = repair_mojibake_text(payload.tts_text)[0] if payload.tts_text is not None else text
+    chunk = {
+        "id": uuid.uuid4().hex[:12],
+        "order": order,
+        "text": text,
+        "boundary_type": "sentence",
+        "pause_after": clamp_pause(payload.pause_after),
+        "audio_path": "",
+        "audio_url": "",
+        "versions": [],
+        "selected_version_id": "",
+        "duration_sec": 0.0,
+        "generated_at": None,
+    }
+    if tts_text and compact_stress_validation_text(tts_text) == compact_stress_validation_text(text):
+        chunk["tts_text"] = unicodedata.normalize("NFC", tts_text)
+        chunk["stressed_text"] = chunk["tts_text"]
+        chunk["stress_source"] = "manual" if chunk["tts_text"] != text else "original"
+    normalize_chunk_pauses(project, chunk)
+    return chunk
+
+
 @app.get("/api/projects")
 def list_projects() -> dict[str, Any]:
     index = load_projects_index()
@@ -5759,6 +6049,63 @@ def update_group_endpoint(group_id: str, payload: GroupUpdate, project_id: str |
     return {"group": group, "project": enrich_project(load_project(pid))}
 
 
+@app.post("/api/project/groups")
+def create_group_endpoint(payload: GroupCreate, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    video = project.setdefault("arrangement", {}).setdefault("video", {})
+    groups = video.setdefault("groups", [])
+    insert_at = len(groups)
+    if payload.insert_after_group_id:
+        existing_idx = next((idx for idx, group in enumerate(groups) if isinstance(group, dict) and group.get("id") == payload.insert_after_group_id), None)
+        if existing_idx is not None:
+            insert_at = existing_idx + 1
+    valid_ids = set(chunk_order_ids(ordered_project_chunks(project)))
+    chunk_ids = [str(chunk_id) for chunk_id in payload.chunk_ids if str(chunk_id) in valid_ids]
+    group = create_video_group_dict(payload.title or f"Manual group {insert_at + 1}", payload.summary, chunk_ids, order=insert_at, source="manual")
+    groups.insert(insert_at, group)
+    video["groups"] = renumber_video_groups(groups)
+    normalize_arrangement(project)
+    set_status(project, f"Group added: {group.get('title')}")
+    return enrich_project(project)
+
+
+@app.delete("/api/project/groups/{group_id}")
+def delete_group_endpoint(group_id: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    video = project.setdefault("arrangement", {}).setdefault("video", {})
+    groups = video.setdefault("groups", [])
+    next_groups = [group for group in groups if not (isinstance(group, dict) and group.get("id") == group_id)]
+    if len(next_groups) == len(groups):
+        raise HTTPException(status_code=404, detail="Video group not found")
+    video["groups"] = renumber_video_groups(next_groups)
+    normalize_arrangement(project)
+    set_status(project, f"Group deleted: {group_id}")
+    return enrich_project(project)
+
+
+@app.post("/api/project/groups/{group_id}/move")
+def move_group_endpoint(group_id: str, payload: GroupMoveRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    video = project.setdefault("arrangement", {}).setdefault("video", {})
+    groups = list(video.setdefault("groups", []))
+    idx = next((i for i, group in enumerate(groups) if isinstance(group, dict) and group.get("id") == group_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    if payload.order is not None:
+        new_idx = max(0, min(len(groups) - 1, int(payload.order)))
+    else:
+        direction = str(payload.direction or "").strip().lower()
+        new_idx = idx - 1 if direction == "up" else idx + 1 if direction == "down" else idx
+        new_idx = max(0, min(len(groups) - 1, new_idx))
+    item = groups.pop(idx)
+    groups.insert(new_idx, item)
+    video["groups"] = renumber_video_groups(groups)
+    normalize_arrangement(project)
+    set_status(project, "Group order updated")
+    return enrich_project(project)
+
+
 @app.post("/api/project/groups/{group_id}/image")
 def generate_group_image_endpoint(group_id: str, payload: GroupImageRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
     project = load_project(project_id)
@@ -5900,6 +6247,42 @@ def select_chunk_version(chunk_id: str, payload: VersionSelect, project_id: str 
     chunk["selected_version_id"] = payload.version_id
     sync_chunk_to_selected_version(chunk)
     set_status(project, f"Selected {version.get('label', 'version')} for chunk {chunk.get('order', 0) + 1}")
+    return enrich_project(project)
+
+
+@app.post("/api/chunks")
+def create_chunk_endpoint(payload: ChunkCreate, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    chunks = sorted(project.get("chunks", []), key=lambda c: c.get("order", 0))
+    insert_at = len(chunks)
+    if payload.insert_after_chunk_id:
+        idx = next((i for i, chunk in enumerate(chunks) if chunk.get("id") == payload.insert_after_chunk_id), None)
+        if idx is not None:
+            insert_at = idx + 1
+    elif payload.order is not None:
+        insert_at = max(0, min(len(chunks), int(payload.order)))
+    chunk = create_chunk_dict(project, payload, insert_at)
+    chunks.insert(insert_at, chunk)
+    project["chunks"] = chunks
+    renumber_chunks(project)
+    normalize_arrangement(project)
+    set_status(project, f"Chunk added at position {insert_at + 1}")
+    return enrich_project(project)
+
+
+@app.delete("/api/chunks/{chunk_id}")
+def delete_chunk_endpoint(chunk_id: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    before = len(project.get("chunks", []))
+    project["chunks"] = [chunk for chunk in project.get("chunks", []) if chunk.get("id") != chunk_id]
+    if len(project["chunks"]) == before:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    for group in project.setdefault("arrangement", {}).setdefault("video", {}).setdefault("groups", []):
+        if isinstance(group, dict) and isinstance(group.get("chunk_ids"), list):
+            group["chunk_ids"] = [item for item in group["chunk_ids"] if item != chunk_id]
+    renumber_chunks(project)
+    normalize_arrangement(project)
+    set_status(project, "Chunk deleted")
     return enrich_project(project)
 
 

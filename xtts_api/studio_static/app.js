@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-11-grok-loop-postprocess-v2";
+﻿const FRONTEND_BUILD = "2026-05-12-studio-workflow-editing-v1";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -7,6 +7,7 @@ const VIDEO_I2V_BACKEND_LABELS = {
   generated_hotshotxl: "HotshotXL / AnimateDiff SDXL",
   generated_grok_imagine_video: "Grok Imagine Video",
 };
+const GROK_IMAGE_MODEL = "grok-2-image";
 const IMAGE_QUALITY_PRESETS = {
   fast: { label: "Быстро", vertical: [832, 1216], horizontal: [1216, 832], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
   balanced: { label: "Баланс", vertical: [896, 1152], horizontal: [1152, 896], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
@@ -287,6 +288,7 @@ function settingsPayload() {
     music_volume: numericFieldValue("musicVolume", 0.18),
     image_provider: $("imageProvider")?.value || "comfyui",
     image_model: $("imageModel")?.value || "realvisxl",
+    image_grok_model: $("imageGrokModel")?.value?.trim() || GROK_IMAGE_MODEL,
     image_quality_preset: quality,
     image_aspect_ratio: aspect,
     image_width: Number($("imageWidth")?.value || resolved.width),
@@ -636,6 +638,31 @@ function videoArrangement() {
   return { ...video, speed_envelope: Array.isArray(video.speed_envelope) ? video.speed_envelope : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }] };
 }
 
+function normalizeGroupMediaItems(group) {
+  const items = Array.isArray(group?.media_items) ? group.media_items.slice() : [];
+  const addLegacy = (meta, type, label) => {
+    if (!meta || !(meta.path || meta.url)) return;
+    const key = meta.path || meta.url;
+    if (items.some((item) => (item.path || item.url || item.id) === key)) return;
+    items.push({ id: `legacy_${type}`, type, path: meta.path || "", url: meta.url || "", label, role: "background", start_offset_sec: 0, duration_sec: Number(meta.duration_sec || 0), fit: "cover" });
+  };
+  addLegacy(group?.image, "image", "Generated image");
+  addLegacy(group?.video, "video", "Generated video");
+  return items.map((item, index) => ({
+    id: item.id || `media_${Date.now()}_${index}`,
+    type: ["image", "video"].includes(item.type) ? item.type : (String(item.path || item.url || "").match(/\.(mp4|webm|gif|mov)$/i) ? "video" : "image"),
+    path: item.path || "",
+    url: item.url || "",
+    label: item.label || shortPath(item.path || item.url || `Media ${index + 1}`),
+    role: item.role || "main",
+    start_offset_sec: clamp(item.start_offset_sec ?? 0, 0, 36000),
+    duration_sec: clamp(item.duration_sec ?? 0, 0, 36000),
+    fit: ["cover", "contain", "fill"].includes(item.fit) ? item.fit : "cover",
+    volume: item.volume === undefined || item.volume === null ? undefined : clamp(item.volume, 0, 2),
+    order: index,
+  }));
+}
+
 function persistedVideoSpeedEnvelope() {
   const duration = Math.max(0, state.timeline.durationSec || 0);
   const raw = videoArrangement().speed_envelope;
@@ -827,13 +854,14 @@ function renderSettings() {
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
-  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
   const setIfNotFocused = (id, value) => {
     const el = $(id);
     if (el && document.activeElement !== el) el.value = value;
   };
   setIfNotFocused("imageProvider", p.settings.image_provider ?? imageDefaults.image_provider);
   setIfNotFocused("imageModel", p.settings.image_model ?? imageDefaults.image_model);
+  setIfNotFocused("imageGrokModel", p.settings.image_grok_model ?? imageDefaults.image_grok_model);
   setIfNotFocused("imageAspectRatio", p.settings.image_aspect_ratio ?? imageDefaults.image_aspect_ratio);
   setImageQualityPreset(p.settings.image_quality_preset ?? imageDefaults.image_quality_preset, { updateFields: false });
   setIfNotFocused("imageWidth", p.settings.image_width ?? imageDefaults.image_width);
@@ -2344,7 +2372,7 @@ function groupDetailSignature(group) {
   const video = group.video || {};
   const imageTask = activeImageGroupTask(group.id);
   const videoTask = activeVideoGroupTask(group.id);
-  const aiFields = ["visual_prompt", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "mood", "scene_type", "video_motion_intensity", "video_loop_notes", "source"]
+  const aiFields = ["visual_prompt", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "grok_video_prompt", "mood", "scene_type", "video_motion_intensity", "video_loop_notes", "source", "media_layout", "default_media_duration_sec"]
     .map((key) => `${key}:${group[key] ?? ""}`)
     .join("|");
   return [
@@ -2356,6 +2384,7 @@ function groupDetailSignature(group) {
     group.duration,
     (group.chunk_ids || []).join(","),
     aiFields,
+    JSON.stringify(normalizeGroupMediaItems(group)),
     image.status || "",
     image.url || "",
     image.path || "",
@@ -2417,6 +2446,13 @@ function renderChunkNavigator(force = false) {
   setActiveChunkNav(state.selectedChunkId || state.chunkNav.activeId || chunks[0]?.id || "");
 }
 
+function renderChunkMultiSelect(selectedIds = []) {
+  const selected = new Set(selectedIds || []);
+  return getChunks().map((chunk) => `
+    <label class="chunkPick"><input type="checkbox" value="${escapeHtml(chunk.id)}" ${selected.has(chunk.id) ? "checked" : ""} /> #${chunk.order + 1} ${escapeHtml((chunk.text || "").slice(0, 80))}</label>
+  `).join("");
+}
+
 function renderGroupNavigator() {
   const root = $("groupNavList");
   if (!root) return;
@@ -2468,17 +2504,40 @@ function renderGroupDetail(group, { force = false } = {}) {
     ["negative_prompt", "Negative prompt", "textarea"],
     ["animation_positive_prompt", "Animation positive prompt", "textarea"],
     ["animation_negative_prompt", "Animation negative prompt", "textarea"],
+    ["grok_video_prompt", "Grok video prompt", "textarea"],
     ["mood", "Mood", "input"],
     ["scene_type", "Scene type", "input"],
     ["video_motion_intensity", "Video motion intensity", "input"],
     ["video_loop_notes", "Video loop notes", "textarea"],
   ];
+  const mediaItems = normalizeGroupMediaItems(group);
+  const mediaItemsHtml = mediaItems.map((item, index) => `
+    <div class="groupMediaItem" data-media-index="${index}">
+      <label>Type <select data-media-field="type"><option value="image" ${item.type === "image" ? "selected" : ""}>image</option><option value="video" ${item.type === "video" ? "selected" : ""}>video</option></select></label>
+      <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(item.path || item.url || "")}" /></label>
+      <label>Label <input type="text" data-media-field="label" value="${escapeHtml(item.label || "")}" /></label>
+      <label>Role <input type="text" data-media-field="role" value="${escapeHtml(item.role || "main")}" /></label>
+      <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(item.start_offset_sec || 0).toFixed(2)}" /></label>
+      <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(item.duration_sec || 0).toFixed(2)}" /></label>
+      <label>Fit <select data-media-field="fit"><option value="cover" ${item.fit === "cover" ? "selected" : ""}>cover</option><option value="contain" ${item.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${item.fit === "fill" ? "selected" : ""}>fill</option></select></label>
+      <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
+    </div>
+  `).join("");
   const aiFieldsHtml = `
     <section class="groupPromptEditor">
       <div class="row between wrap">
         <h4>Editable group prompts</h4>
-        <button type="button" class="saveGroupPromptsBtn secondary">Save prompts</button>
+        <div class="row wrap">
+          <button type="button" class="moveGroupUpBtn secondary">Group ↑</button>
+          <button type="button" class="moveGroupDownBtn secondary">Group ↓</button>
+          <button type="button" class="deleteGroupBtn secondary">Delete group</button>
+          <button type="button" class="saveGroupPromptsBtn secondary">Save group</button>
+        </div>
       </div>
+      <details class="groupChunkMembership" open>
+        <summary>Chunks in this group (editable)</summary>
+        <div class="chunkPickGrid">${renderChunkMultiSelect(group.chunk_ids || [])}</div>
+      </details>
       <div class="groupPromptGrid">
         ${editableFields.map(([key, label, type]) => {
           const id = groupPromptInputId(group.id, key);
@@ -2488,6 +2547,17 @@ function renderGroupDetail(group, { force = false } = {}) {
             : `<label>${escapeHtml(label)}<input id="${escapeHtml(id)}" type="text" data-group-field="${escapeHtml(key)}" value="${escapeHtml(value)}" /></label>`;
         }).join("")}
       </div>
+      <section class="groupMediaEditor">
+        <div class="row between wrap">
+          <h4>Group media schedule</h4>
+          <button type="button" class="addGroupMediaBtn secondary">Add photo/video</button>
+        </div>
+        <div class="grid two imageSettingsGrid">
+          <label>Layout <select data-group-setting="media_layout"><option value="sequence" ${(group.media_layout || "sequence") === "sequence" ? "selected" : ""}>sequence</option><option value="overlay" ${group.media_layout === "overlay" ? "selected" : ""}>overlay</option><option value="background" ${group.media_layout === "background" ? "selected" : ""}>background</option><option value="manual" ${group.media_layout === "manual" ? "selected" : ""}>manual</option></select></label>
+          <label>Default duration, sec <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
+        </div>
+        <div class="groupMediaList">${mediaItemsHtml || `<p class="groupMediaEmpty">No extra media yet. Generated image/video is still used automatically.</p>`}</div>
+      </section>
       ${group.source ? `<p class="groupPromptSource">Source: ${escapeHtml(group.source)}</p>` : ""}
     </section>
   `;
@@ -2566,6 +2636,14 @@ function renderGroupDetail(group, { force = false } = {}) {
   const savePromptsButton = card.querySelector(".saveGroupPromptsBtn");
   const generateImageButton = card.querySelector(".generateGroupImageBtn");
   const generateVideoButton = card.querySelector(".generateGroupVideoBtn");
+  card.querySelector(".moveGroupUpBtn")?.addEventListener("click", () => moveGroup(group.id, "up"));
+  card.querySelector(".moveGroupDownBtn")?.addEventListener("click", () => moveGroup(group.id, "down"));
+  card.querySelector(".deleteGroupBtn")?.addEventListener("click", () => deleteGroup(group.id));
+  card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
+  card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
+    event.preventDefault();
+    button.closest(".groupMediaItem")?.remove();
+  });
   if (savePromptsButton) savePromptsButton.onclick = () => saveGroupPrompts(group.id, card);
   else console.warn("Group prompt save button missing", { groupId: group.id });
   if (generateImageButton) generateImageButton.onclick = () => enqueueGroupImage(group.id, imageExists);
@@ -2581,6 +2659,25 @@ async function saveGroupPrompts(groupId, card) {
   card.querySelectorAll("[data-group-field]").forEach((field) => {
     payload[field.dataset.groupField] = field.value || "";
   });
+  payload.chunk_ids = [...card.querySelectorAll(".chunkPick input[type='checkbox']:checked")].map((input) => input.value);
+  payload.media_layout = card.querySelector("[data-group-setting='media_layout']")?.value || "sequence";
+  payload.default_media_duration_sec = Number(card.querySelector("[data-group-setting='default_media_duration_sec']")?.value || 0);
+  payload.media_items = [...card.querySelectorAll(".groupMediaItem")].map((row) => {
+    const value = (field) => row.querySelector(`[data-media-field='${field}']`)?.value || "";
+    const pathOrUrl = value("path");
+    const item = {
+      id: row.dataset.mediaId || undefined,
+      type: value("type") || "image",
+      path: /^https?:\/\//i.test(pathOrUrl) ? "" : pathOrUrl,
+      url: /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : "",
+      label: value("label"),
+      role: value("role") || "main",
+      start_offset_sec: Number(value("start_offset_sec") || 0),
+      duration_sec: Number(value("duration_sec") || 0),
+      fit: value("fit") || "cover",
+    };
+    return item;
+  });
   try {
     setStatus("Saving group prompts…", true);
     const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}${activeProjectQuery()}`, {
@@ -2594,6 +2691,60 @@ async function saveGroupPrompts(groupId, card) {
   } catch (err) {
     setStatus(`Group prompt save failed: ${err.message}`);
   }
+}
+
+function addGroupMediaItem(groupId) {
+  const card = document.querySelector(`.groupDetailCard`);
+  const list = card?.querySelector(".groupMediaList");
+  if (!list) return;
+  list.querySelector(".groupMediaEmpty")?.remove();
+  const row = document.createElement("div");
+  row.className = "groupMediaItem";
+  row.dataset.mediaId = `media_${Date.now()}`;
+  row.innerHTML = `
+    <label>Type <select data-media-field="type"><option value="image">image</option><option value="video">video</option></select></label>
+    <label>Path/URL <input type="text" data-media-field="path" placeholder="xtts_api/.../image.png or https://..." /></label>
+    <label>Label <input type="text" data-media-field="label" value="Manual media" /></label>
+    <label>Role <input type="text" data-media-field="role" value="main" /></label>
+    <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="0.00" /></label>
+    <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="0.00" /></label>
+    <label>Fit <select data-media-field="fit"><option value="cover">cover</option><option value="contain">contain</option><option value="fill">fill</option></select></label>
+    <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
+  `;
+  row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
+  list.appendChild(row);
+  setStatus(`Added media row for ${groupId}; save group to persist`);
+}
+
+async function moveGroup(groupId, direction) {
+  try {
+    state.project = await api(`/api/project/groups/${encodeURIComponent(groupId)}/move${activeProjectQuery()}`, { method: "POST", body: JSON.stringify({ direction }) });
+    render();
+    setStatus("Group moved");
+  } catch (err) { setStatus(`Group move failed: ${err.message}`); }
+}
+
+async function deleteGroup(groupId) {
+  if (!confirm(`Delete group ${groupId}? Chunks are kept and can be assigned to another/new group.`)) return;
+  try {
+    state.project = await api(`/api/project/groups/${encodeURIComponent(groupId)}${activeProjectQuery()}`, { method: "DELETE" });
+    state.selectedGroupId = videoGroups()[0]?.id || "";
+    render();
+    setStatus("Group deleted");
+  } catch (err) { setStatus(`Group delete failed: ${err.message}`); }
+}
+
+async function addManualGroup() {
+  try {
+    const chunks = getChunks();
+    const cursorChunk = state.timeline.arrangement.find((part) => state.timeline.cursorSec >= part.start && state.timeline.cursorSec <= part.nextStart)?.chunk;
+    const chunk_ids = cursorChunk ? [cursorChunk.id] : (chunks[0] ? [chunks[0].id] : []);
+    state.project = await api(`/api/project/groups${activeProjectQuery()}`, { method: "POST", body: JSON.stringify({ title: "Manual group", summary: "", chunk_ids, insert_after_group_id: state.selectedGroupId || "" }) });
+    state.sidePanelMode = "groups";
+    state.screenMode = "group";
+    render();
+    setStatus("Manual group added");
+  } catch (err) { setStatus(`Add group failed: ${err.message}`); }
 }
 
 function setGroupAiStatus(message, tone = "") {
@@ -2808,6 +2959,8 @@ function renderChunkCard(chunk) {
     <div class="row wrap">
       <label>Pause after, sec <input class="pauseAfter" type="number" min="0" max="10" step="0.01" value="${clampPauseAfter(chunk.pause_after ?? 0)}" /></label>
       <button type="button" class="saveChunk secondary">Save</button>
+      <button type="button" class="addChunkAfter secondary">Add after</button>
+      <button type="button" class="deleteChunk secondary">Delete</button>
       <button type="button" class="generateChunk">Generate another version</button>
       <button type="button" class="moveUp secondary">↑</button>
       <button type="button" class="moveDown secondary">↓</button>
@@ -2820,6 +2973,8 @@ function renderChunkCard(chunk) {
     tts_text: card.querySelector(".chunkTtsText").value,
     pause_after: clampPauseAfter(card.querySelector(".pauseAfter").value),
   });
+  card.querySelector(".addChunkAfter").onclick = () => addChunkAfter(chunk.id);
+  card.querySelector(".deleteChunk").onclick = () => deleteChunk(chunk.id);
   card.querySelector(".generateChunk").onclick = () => generateChunk(chunk.id, card);
   card.querySelector(".moveUp").onclick = () => moveChunk(chunk.id, "up");
   card.querySelector(".moveDown").onclick = () => moveChunk(chunk.id, "down");
@@ -3228,6 +3383,30 @@ async function updateChunk(id, payload) {
   await saveSettings();
   state.project = await api(`/api/chunks/${id}${activeProjectQuery()}`, { method: "PATCH", body: JSON.stringify(payload) });
   render();
+}
+
+async function addChunkAfter(chunkId = "") {
+  const text = prompt("Text for the new chunk:", "");
+  if (text === null) return;
+  try {
+    state.project = await api(`/api/chunks${activeProjectQuery()}`, { method: "POST", body: JSON.stringify({ text, pause_after: 0.25, insert_after_chunk_id: chunkId }) });
+    const chunks = getChunks();
+    const inserted = chunks.find((chunk) => chunk.text === text) || chunks.at(-1);
+    state.selectedChunkId = inserted?.id || state.selectedChunkId;
+    state.screenMode = "chunk";
+    render();
+    setStatus("Chunk added");
+  } catch (err) { setStatus(`Add chunk failed: ${err.message}`); }
+}
+
+async function deleteChunk(chunkId) {
+  if (!confirm(`Delete chunk ${chunkNumber(chunkId)}? This also removes it from video groups.`)) return;
+  try {
+    state.project = await api(`/api/chunks/${encodeURIComponent(chunkId)}${activeProjectQuery()}`, { method: "DELETE" });
+    state.selectedChunkId = getChunks()[0]?.id || "";
+    render();
+    setStatus("Chunk deleted");
+  } catch (err) { setStatus(`Delete chunk failed: ${err.message}`); }
 }
 
 async function loadHealth() {
@@ -3735,6 +3914,8 @@ $("backToProjectBtn").onclick = () => setScreenMode("project");
 $("backToProjectFromGroupBtn").onclick = () => setScreenMode("project");
 const generateAiGroupsBtn = $("generateAiGroupsBtn");
 if (generateAiGroupsBtn) generateAiGroupsBtn.onclick = () => generateAiGroups();
+const addManualGroupBtn = $("addManualGroupBtn");
+if (addManualGroupBtn) addManualGroupBtn.onclick = addManualGroup;
 const queueAllImagesBtn = $("queueAllImagesBtn");
 if (queueAllImagesBtn) queueAllImagesBtn.onclick = () => enqueueAllGroupImages();
 const queueAllVideosBtn = $("queueAllVideosBtn");

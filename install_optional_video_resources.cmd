@@ -24,10 +24,11 @@ set "OPTIONAL_FAILURES=0"
 
 echo.
 echo Running optional installer: ComfyUI portable runtime from GitHub Releases
-call xtts_api\install_comfyui_portable.cmd --yes
+call xtts_api\install_comfyui_portable.cmd --yes --force
 if errorlevel 1 (
   echo WARNING: ComfyUI portable runtime installer could not complete.
-  echo          This is non-fatal; existing local ComfyUI folders are never overwritten by default.
+  echo          This is non-fatal; valid local ComfyUI folders are never overwritten.
+  echo          Invalid local ComfyUI folders are renamed to timestamped backups when repair is possible.
   echo          If redistribution was approved, update xtts_api\comfyui_portable_manifest.json first.
   echo          Model/custom-node installers will continue below where possible.
   set /a OPTIONAL_FAILURES+=1

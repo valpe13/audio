@@ -98,6 +98,35 @@ def validate_required_files(root: Path, manifest: dict[str, Any]) -> list[str]:
     return missing
 
 
+def format_missing_required_files(missing: list[str]) -> str:
+    return "\n".join(f"  - {item}" for item in missing)
+
+
+def classify_missing_required_files(missing: list[str]) -> str:
+    normalized = [item.replace("\\", "/") for item in missing]
+    if any(path.startswith("ComfyUI/comfy/") for path in normalized):
+        return (
+            "Core ComfyUI Python package files are missing. This is an incomplete or corrupted "
+            "ComfyUI portable runtime, not a missing checkpoint/model download."
+        )
+    if any(path.startswith("python_embeded/") for path in normalized):
+        return "The embedded Python runtime is incomplete or corrupted."
+    if any(path.startswith("ComfyUI/") for path in normalized):
+        return "The ComfyUI application tree is incomplete or corrupted."
+    return "Required ComfyUI portable runtime files are missing."
+
+
+def print_invalid_target_guidance(missing: list[str], force: bool) -> None:
+    print("WARNING: Existing ComfyUI target is present but invalid/missing required files:")
+    print(format_missing_required_files(missing))
+    print(classify_missing_required_files(missing))
+    if not force:
+        print()
+        print("Repair action:")
+        print("  Rerun this installer with --force to rename the broken folder to a timestamped backup")
+        print("  and install a clean ComfyUI portable runtime from the verified release archive.")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -259,7 +288,12 @@ def install_from_archive(archive_path: Path, target_dir: Path, manifest: dict[st
         shutil.move(str(runtime_root), str(target_dir))
     missing = validate_required_files(target_dir, manifest)
     if missing:
-        raise RuntimeError("Installed runtime failed validation: " + ", ".join(missing))
+        raise RuntimeError(
+            "Installed runtime failed validation:\n"
+            + format_missing_required_files(missing)
+            + "\n"
+            + classify_missing_required_files(missing)
+        )
 
 
 def print_plan(manifest: dict[str, Any], target_dir: Path, cache_dir: Path, args: argparse.Namespace) -> None:
@@ -296,11 +330,8 @@ def main() -> int:
             if not missing:
                 print(f"ComfyUI portable is already installed and valid: {target_dir}")
                 return 0
-            print("WARNING: Existing ComfyUI target is present but invalid/missing required files:")
-            for item in missing:
-                print(f"  - {item}")
+            print_invalid_target_guidance(missing, args.force)
             if not args.force:
-                print("Refusing to overwrite existing folder. Rerun with --force to rename it to a backup and install.")
                 return 1
 
         status = str(manifest.get("redistribution_status") or "").strip().lower()

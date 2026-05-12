@@ -63,6 +63,7 @@ fish_speech_api/reference_audio/
 xtts_api/reference_audio/
 
 # Logs and temporary files
+.installer_cache/
 *.log
 *.tmp
 *.temp
