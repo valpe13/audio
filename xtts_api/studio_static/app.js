@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-group-preview-playhead-fix";
+﻿const FRONTEND_BUILD = "2026-05-13-group-preview-progressive-subtitles";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1550,6 +1550,8 @@ function groupSubtitleSectionHtml(group) {
         <label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label>
         <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /><small class="subtitleOpacityHint">0 = без фона / прозрачно</small></label>
         <label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
+        <label>Макс. слов <input type="number" min="1" max="40" step="1" data-subtitle-default="max_words" value="${Number(defaults.max_words || 7)}" /><small class="subtitleOpacityHint">Слова появляются постепенно; после лимита строка очищается.</small></label>
+        <label>Сдвиг слов, сек <input type="number" min="-5" max="5" step="0.05" data-subtitle-default="word_offset_sec" value="${Number(defaults.word_offset_sec ?? 0).toFixed(2)}" /><small class="subtitleOpacityHint">− позже диктора, 0 по таймингу, + раньше диктора</small></label>
       </div>
       <div class="groupSubtitleBlocks"></div>
     </section>
@@ -2412,7 +2414,7 @@ function renderPreviewScreen() {
   const video = group?.video || {};
   const hasVideo = Boolean(video.url);
   const hasImage = Boolean(image.url);
-  const aspect = image.aspect_ratio || state.project?.settings?.image_aspect_ratio || "vertical";
+  const aspect = video.aspect_ratio || image.aspect_ratio || state.project?.settings?.image_aspect_ratio || "vertical";
   const isHorizontal = aspect === "horizontal";
   frame.classList.toggle("horizontal", isHorizontal);
   frame.classList.toggle("hasImage", hasImage && !hasVideo);
@@ -2432,8 +2434,12 @@ function renderPreviewScreen() {
         previewVideo.load();
       }
       previewVideo.hidden = false;
-      const playPromise = previewVideo.play();
-      if (playPromise?.catch) playPromise.catch(() => {});
+      if (state.sequence.active) {
+        const playPromise = previewVideo.play();
+        if (playPromise?.catch) playPromise.catch(() => {});
+      } else {
+        previewVideo.pause();
+      }
     } else {
       if (!previewVideo.hidden || previewVideo.getAttribute("src")) {
         previewVideo.pause();
@@ -2694,7 +2700,7 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   return row;
 }
 
-function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk = null, time = 0, mode = "manual" } = {}) {
+function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk = null, time = 0, mode = "manual", isPlaying = false } = {}) {
   if (!card) return;
   const preview = card.querySelector(".groupMediaPreview");
   if (!preview) return;
@@ -2711,31 +2717,36 @@ function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk =
     if (!video || !isPlayback || !item) return;
     const offset = Math.max(0, Number(time || 0) - Number(item.start_offset_sec || 0));
     try { if (Math.abs((video.currentTime || 0) - offset) > 0.2) video.currentTime = Math.min(Math.max(0, offset), Math.max(0.1, video.duration || offset || 0.1)); } catch (_) { /* best-effort preview seek */ }
-    video.play?.().catch?.(() => {});
+    if (isPlaying) video.play?.().catch?.(() => {});
+    else video.pause?.();
   };
   if (!item || !url) {
-    const previewKey = `empty:${mode}:${(Array.isArray(subtitles) ? subtitles : []).map((block) => `${block.id || ""}:${block.text || ""}`).join("|")}`;
+    const previewKey = `empty:${mode}`;
     if (preview.dataset.previewKey !== previewKey) {
-      preview.innerHTML = `<div class="groupMediaPreviewStage empty"><div class="groupMediaPreviewEmpty">${isPlayback ? "На текущей позиции таймлайна нет активного медиа." : "Выберите миниатюру или блок на таймлайне."}<small></small></div>${overlay}</div>`;
+      preview.innerHTML = `<div class="groupMediaPreviewStage empty"><div class="groupMediaPreviewEmpty">${isPlayback ? "На текущей позиции таймлайна нет активного медиа." : "Выберите миниатюру или блок на таймлайне."}<small></small></div><div class="groupMediaPreviewOverlaySlot"></div></div>`;
       preview.dataset.previewKey = previewKey;
     }
+    const overlaySlot = preview.querySelector(".groupMediaPreviewOverlaySlot");
+    if (overlaySlot) overlaySlot.innerHTML = overlay;
     const small = preview.querySelector(".groupMediaPreviewEmpty small");
     if (small) small.textContent = timeLabel + chunkLabel;
     return;
   }
   const fit = ["cover", "contain", "fill"].includes(item.fit) ? item.fit : "contain";
   const label = item.label || item.path || item.url || (item.type === "video" ? "Видео" : "Картинка");
-  const previewKey = `${item.type}:${item.id || ""}:${url}:${fit}:${mode}:${(Array.isArray(subtitles) ? subtitles : []).map((block) => `${block.id || ""}:${block.text || ""}:${block.position || ""}:${block.font_size || ""}:${block.background_opacity ?? ""}`).join("|")}`;
+  const previewKey = `${item.type}:${item.id || ""}:${url}:${fit}:${mode}`;
   if (preview.dataset.previewKey === previewKey) {
     const small = preview.querySelector(":scope > small");
     if (small) small.textContent = `${label} · ${timeLabel + chunkLabel}`;
+    const overlaySlot = preview.querySelector(".groupMediaPreviewOverlaySlot");
+    if (overlaySlot) overlaySlot.innerHTML = overlay;
     syncPlaybackVideo();
     return;
   }
   const media = item.type === "video"
     ? `<video src="${escapeHtml(url)}" ${isPlayback ? "" : "controls"} muted loop playsinline data-preview-media-id="${escapeHtml(item.id || "")}" style="object-fit:${fit}"></video>`
     : `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="object-fit:${fit}" />`;
-  preview.innerHTML = `<div class="groupMediaPreviewStage">${media}${overlay}</div><small>${escapeHtml(label)} · ${escapeHtml(timeLabel + chunkLabel)}</small>`;
+  preview.innerHTML = `<div class="groupMediaPreviewStage">${media}<div class="groupMediaPreviewOverlaySlot">${overlay}</div></div><small>${escapeHtml(label)} · ${escapeHtml(timeLabel + chunkLabel)}</small>`;
   preview.dataset.previewKey = previewKey;
   syncPlaybackVideo();
 }
@@ -2939,7 +2950,7 @@ function renderGroupDetail(group, { force = false } = {}) {
 function groupSubtitleDefaultsFromCard(card) {
   const value = (field) => card.querySelector(`[data-subtitle-default='${field}']`)?.value || "";
   const opacityValue = value("background_opacity");
-  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2) }) || {};
+  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2), max_words: Number(value("max_words") || 7), word_offset_sec: Number(value("word_offset_sec") || 0) }) || {};
 }
 
 function renderGroupSubtitleEditor(card, group) {
@@ -3055,8 +3066,8 @@ function renderGroupMediaTimeline(card, group) {
       chunks,
       subtitleBlocks: subtitle ? subtitle.blocksFromRows(card, group.duration, groupSubtitleDefaultsFromCard(card)) : [],
       onSelect: (item) => selectGroupMediaPreview(card, item),
-      onPreviewState: ({ item, subtitles, chunk, time }) => renderGroupTimelinePreview(card, { item, subtitles, chunk, time, mode: "playback" }),
-      onPreviewChunkTime: (chunk, localTimeSec) => {
+      onPreviewState: ({ item, subtitles, chunk, time, isPlaying }) => renderGroupTimelinePreview(card, { item, subtitles, chunk, time, mode: "playback", isPlaying }),
+      onPreviewChunkTime: (chunk, localTimeSec, playback = {}) => {
         if (!chunk?.audio_url) {
           stopChunkAudio();
           return;
@@ -3069,9 +3080,10 @@ function renderGroupMediaTimeline(card, group) {
           activeChunkAudioId = chunk.id;
         }
         try { if (Math.abs((activeChunkAudio.currentTime || 0) - offset) > 0.35) activeChunkAudio.currentTime = offset; } catch (_) { /* best-effort audio seek */ }
-        activeChunkAudio.play?.().catch?.(() => {});
+        if (playback.isPlaying) activeChunkAudio.play?.().catch?.(() => {});
+        else activeChunkAudio.pause?.();
       },
-      onPreviewStop: () => { stopGroupMediaPreview(card); stopChunkAudio(); },
+      onPreviewStop: (options = {}) => { if (!options.keepFrame) stopGroupMediaPreview(card); stopChunkAudio(); },
       onAdd: (item) => addGroupMediaRow(card, item, group.duration),
       onReject: (message) => setStatus(message === "Group media timeline is fully occupied; drop rejected." ? "Таймлайн группы заполнен; добавление отклонено." : message),
       onChange: () => saveGroupPrompts(group.id, card),
@@ -4053,13 +4065,14 @@ for (const id of ["imageModel", "imageProvider", "imageWorkflowMode", "imageGrok
 
 $("timelineScrubber").oninput = () => {
   state.timeline.userScrubbing = true;
+  if (state.sequence.active) stopSequence();
   setTimelineCursor(Number($("timelineScrubber").value));
 };
 
 $("timelineScrubber").onchange = () => {
   state.timeline.userScrubbing = false;
   setTimelineCursor(Number($("timelineScrubber").value));
-  if (state.sequence.active) playFromTimelineCursor(state.timeline.cursorSec).catch((err) => setStatus(`Seek failed: ${err.message}`));
+  setSequenceStatus(`Cursor ${formatTime(state.timeline.cursorSec)} · paused`);
 };
 
 function updatePlayheadPosition() {
@@ -4081,15 +4094,14 @@ function beginPlayheadDrag(event) {
   if (!state.timeline.durationSec) return;
   event.preventDefault();
   state.timeline.draggingPlayhead = true;
-  const wasPlaying = state.sequence.active;
+  if (state.sequence.active) stopSequence();
   setTimelineCursor(timeFromTimelineClientX(event.clientX));
   const onMove = (moveEvent) => setTimelineCursor(timeFromTimelineClientX(moveEvent.clientX));
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
     state.timeline.draggingPlayhead = false;
-    setSequenceStatus(`Cursor ${formatTime(state.timeline.cursorSec)}${wasPlaying ? " · seeking…" : ""}`);
-    if (wasPlaying) playFromTimelineCursor(state.timeline.cursorSec).catch((err) => setStatus(`Seek failed: ${err.message}`));
+    setSequenceStatus(`Cursor ${formatTime(state.timeline.cursorSec)} · paused`);
   };
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp, { once: true });

@@ -35,6 +35,7 @@ window.XTTSStudio = window.XTTSStudio || {};
   function activeSubtitleBlocksAt(blocks, timeSec, groupDuration) {
     const time = clamp(timeSec, 0, Math.max(0.25, Number(groupDuration || 0)));
     const subtitle = namespace.GroupSubtitleTimeline;
+    if (subtitle?.progressiveBlocks) return subtitle.progressiveBlocks(blocks, time, groupDuration, {});
     return (Array.isArray(blocks) ? blocks : [])
       .map((block, index) => subtitle?.normalizeBlock?.(block, index, groupDuration, {}) || block)
       .filter((block) => {
@@ -141,6 +142,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     const duration = Math.max(0.25, Number(group?.duration || 0));
     let selectedIndex = -1;
     let activeAudio = null;
+    let isPlaying = false;
     const rows = () => [...card.querySelectorAll(".groupMediaItem")];
     const timelineItems = () => namespace.GroupMediaUtils?.scheduledItems?.(normalizedItemsFromRows(card, duration)) || normalizedItemsFromRows(card, duration).filter((item) => item.scheduled !== false);
     const scheduledRows = () => rows().filter((row) => row.querySelector(`[data-media-field='scheduled']`)?.checked !== false);
@@ -171,22 +173,24 @@ window.XTTSStudio = window.XTTSStudio || {};
       const item = activeItemAt(time);
       const chunk = activeChunkAt(time);
       const subtitles = activeSubtitlesAt(time);
-      callbacks.onPreviewState?.({ item, subtitles, chunk, time });
-      callbacks.onPreviewTime?.(item, time);
-      callbacks.onPreviewChunkTime?.(chunk, time);
+      callbacks.onPreviewState?.({ item, subtitles, chunk, time, isPlaying });
+      callbacks.onPreviewTime?.(item, time, { isPlaying });
+      callbacks.onPreviewChunkTime?.(chunk, time, { isPlaying });
       return time;
     };
-    const stopPlayback = () => {
+    const stopPlayback = (options = {}) => {
+      isPlaying = false;
       if (namespace.GroupMediaTimeline?.previewTimer) window.clearInterval(namespace.GroupMediaTimeline.previewTimer);
       namespace.GroupMediaTimeline.previewTimer = null;
       if (activeAudio) {
         activeAudio.pause?.();
         activeAudio = null;
       }
-      callbacks.onPreviewStop?.();
+      callbacks.onPreviewStop?.(options);
     };
     const startPlayback = () => {
       stopPlayback();
+      isPlaying = true;
       let startWall = Date.now();
       let startTime = Number(host.querySelector(".groupMediaPlayheadSlider")?.value || 0);
       if (startTime >= duration - 0.01) startTime = 0;
@@ -278,7 +282,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       });
       lane.addEventListener("drop", (event) => { event.preventDefault(); addDropped(event); });
     }
-    host.querySelector(".groupMediaPlayheadSlider")?.addEventListener("input", (event) => { stopPlayback(); setPlayhead(event.target.value); });
+    host.querySelector(".groupMediaPlayheadSlider")?.addEventListener("input", (event) => { stopPlayback({ keepFrame: true }); setPlayhead(event.target.value); });
     host.querySelector(".groupMediaTimelineButtons")?.insertAdjacentHTML("beforeend", `<button type="button" class="secondary deleteGroupMediaSelectedBtn">Удалить выбранное</button>`);
     card.querySelectorAll(".groupMediaItem input, .groupMediaItem select").forEach((input) => {
       input.addEventListener("input", () => { rerender?.(); select(Math.min(selectedIndex, scheduledRows().length - 1)); });

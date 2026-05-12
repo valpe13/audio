@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-group-preview-playhead-fix"
+STUDIO_BUILD = "2026-05-13-group-preview-progressive-subtitles"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -1261,6 +1261,8 @@ DEFAULT_SUBTITLE_SETTINGS = {
     "background": "#000000",
     "background_opacity": 0.45,
     "outline": 2,
+    "max_words": 7,
+    "word_offset_sec": 0.0,
 }
 
 
@@ -1272,11 +1274,12 @@ def normalize_subtitle_defaults(raw: Any) -> dict[str, Any]:
     for key in ("font_family", "color", "background"):
         if data.get(key) is not None:
             out[key] = truncate_text(data.get(key), 120)
-    for key, min_value, max_value in (("font_size", 8, 160), ("background_opacity", 0, 1), ("outline", 0, 12)):
+    for key, min_value, max_value in (("font_size", 8, 160), ("background_opacity", 0, 1), ("outline", 0, 12), ("max_words", 1, 40), ("word_offset_sec", -5, 5)):
         try:
             out[key] = max(min_value, min(max_value, float(data.get(key, out[key]))))
         except (TypeError, ValueError):
             pass
+    out["max_words"] = int(round(float(out.get("max_words", 7))))
     return out
 
 
@@ -1308,6 +1311,8 @@ def normalize_subtitle_blocks(raw_blocks: Any, group: dict[str, Any] | None = No
             "background": block_defaults["background"],
             "background_opacity": block_defaults["background_opacity"],
             "outline": block_defaults["outline"],
+            "max_words": block_defaults["max_words"],
+            "word_offset_sec": block_defaults["word_offset_sec"],
             "order": int(raw.get("order") if str(raw.get("order", "")).isdigit() else idx),
         })
     return blocks
