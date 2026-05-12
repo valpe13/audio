@@ -56,7 +56,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-12-collapse-stress-installer-v1"
+STUDIO_BUILD = "2026-05-12-group-media-workflow-v1"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -392,6 +392,7 @@ DEFAULT_SETTINGS = {
     "ai_stress_batch_chunks": 2,
     "ai_stress_max_request_chars": 2500,
     "ai_stress_retries": 2,
+    "ai_generate_group_prompts_on_split": True,
 }
 
 
@@ -400,6 +401,7 @@ class SplitRequest(BaseModel):
     max_chars: int = Field(default=190, ge=60, le=320)
     split_pause_after_min: float = Field(default=0.18, ge=0.0, le=30.0)
     split_pause_after_max: float = Field(default=0.35, ge=0.0, le=30.0)
+    generate_group_prompts: bool | None = None
 
 
 class ChunkUpdate(BaseModel):
@@ -493,6 +495,7 @@ class SettingsUpdate(BaseModel):
     ai_stress_batch_chunks: int | None = Field(default=None, ge=1, le=12)
     ai_stress_max_request_chars: int | None = Field(default=None, ge=500, le=20000)
     ai_stress_retries: int | None = Field(default=None, ge=0, le=5)
+    ai_generate_group_prompts_on_split: bool | None = None
 
 
 class TextValue(BaseModel):
@@ -4335,6 +4338,20 @@ def create_video_group_dict(title: str, summary: str, chunk_ids: list[str], *, o
     return group
 
 
+def generate_prompt_for_group(project: dict[str, Any], group: dict[str, Any]) -> dict[str, Any]:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    texts = [str(chunks_by_id.get(str(chunk_id), {}).get("text") or "") for chunk_id in group.get("chunk_ids", [])]
+    summary = truncate_text(group.get("summary") or " ".join(texts), 600)
+    exclude_people = bool(project.get("settings", {}).get("image_exclude_people", DEFAULT_SETTINGS["image_exclude_people"]))
+    fallback = fallback_video_groups([chunks_by_id[str(chunk_id)] for chunk_id in group.get("chunk_ids", []) if str(chunk_id) in chunks_by_id], max_chunks_per_group=max(1, len(group.get("chunk_ids", []) or [1])), exclude_people=exclude_people)
+    prompt_source = fallback[0] if fallback else create_video_group_dict(group.get("title") or "Group", summary, group.get("chunk_ids", []), order=int(group.get("order") or 0), source="prompt-fallback")
+    for key in ("summary", "visual_prompt", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "grok_video_prompt", "mood", "scene_type"):
+        if prompt_source.get(key):
+            group[key] = prompt_source[key]
+    group["source"] = "generated-selected-group-prompt"
+    return group
+
+
 def find_video_group(project: dict[str, Any], group_id: str) -> dict[str, Any] | None:
     groups = project.get("arrangement", {}).get("video", {}).get("groups", [])
     return next((group for group in groups if isinstance(group, dict) and group.get("id") == group_id), None)
@@ -6026,6 +6043,19 @@ def update_group_endpoint(group_id: str, payload: GroupUpdate, project_id: str |
     return {"group": group, "project": enrich_project(load_project(pid))}
 
 
+@app.post("/api/project/groups/{group_id}/prompt")
+def generate_group_prompt_endpoint(group_id: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    generate_prompt_for_group(project, group)
+    normalize_arrangement(project)
+    set_status(project, f"Generated prompt for {group.get('title') or group_id}")
+    return {"group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
+
+
 @app.post("/api/project/groups")
 def create_group_endpoint(payload: GroupCreate, project_id: str | None = Query(default=None)) -> dict[str, Any]:
     project = load_project(project_id)
@@ -6200,6 +6230,11 @@ def split_chunks(payload: SplitRequest, project_id: str | None = Query(default=N
             sanitize_split_chunk_for_response(chunk)
         project["full_text"] = source_text
         project["chunks"] = chunks
+        if (payload.generate_group_prompts if payload.generate_group_prompts is not None else bool(project.get("settings", {}).get("ai_generate_group_prompts_on_split", DEFAULT_SETTINGS["ai_generate_group_prompts_on_split"]))):
+            video = project.setdefault("arrangement", {}).setdefault("video", {})
+            video["groups"] = fallback_video_groups(chunks, 4, exclude_people=bool(project.get("settings", {}).get("image_exclude_people", DEFAULT_SETTINGS["image_exclude_people"])))
+        else:
+            project.setdefault("arrangement", {}).setdefault("video", {})["groups"] = []
         status = f"Standard split into {len(chunks)} chunks"
         if stress_note != "disabled":
             status += f" · {stress_note}"

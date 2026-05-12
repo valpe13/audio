@@ -50,7 +50,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  function render(host, group, mediaItems) {
+  function render(host, group, mediaItems, options = {}) {
     if (!host) return;
     const duration = Math.max(0.25, Number(group?.duration || 0));
     const scale = timelineScale(duration);
@@ -67,9 +67,10 @@ window.XTTSStudio = window.XTTSStudio || {};
       const width = Math.max(3, Math.min(100 - (start / scale) * 100, (visualDuration / scale) * 100));
       const left = (start / scale) * 100;
       const type = item.type === "video" ? "video" : "image";
-      return `<button type="button" class="groupMediaTimelineBlock ${type}" data-media-index="${index}" style="left:${left}%;width:${width}%" title="${escapeHtml(item.label || mediaPath(item))}\nstart ${start.toFixed(2)}s · duration ${Number(item.duration_sec || 0).toFixed(2)}s">
+      return `<button type="button" class="groupMediaTimelineBlock ${type} ${item.id === options.selectedId ? "selected" : ""}" data-media-index="${index}" data-media-id="${escapeHtml(item.id || `media_${index}`)}" style="left:${left}%;width:${width}%" title="${escapeHtml(item.label || mediaPath(item))}\nstart ${start.toFixed(2)}s · duration ${Number(item.duration_sec || 0).toFixed(2)}s">
         <span>${escapeHtml(item.label || mediaPath(item) || `Media ${index + 1}`)}</span>
         <small>${escapeHtml(type)} · ${start.toFixed(2)}s → ${(start + visualDuration).toFixed(2)}s</small>
+        <b class="groupMediaHandle left" title="Resize left"></b><b class="groupMediaHandle right" title="Resize right"></b>
       </button>`;
     }).join("");
     host.innerHTML = `
@@ -93,7 +94,7 @@ window.XTTSStudio = window.XTTSStudio || {};
     `;
   }
 
-  function bind(host, card, group, rerender) {
+  function bind(host, card, group, rerender, callbacks = {}) {
     if (!host || !card) return;
     const duration = Math.max(0.25, Number(group?.duration || 0));
     let selectedIndex = -1;
@@ -103,6 +104,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       host.querySelectorAll(".groupMediaTimelineBlock").forEach((block) => block.classList.toggle("selected", Number(block.dataset.mediaIndex) === index));
       rows().forEach((row, rowIndex) => row.classList.toggle("selected", rowIndex === index));
       const item = normalizedItemsFromRows(card, duration)[index];
+      if (item) callbacks.onSelect?.(item);
       const selection = host.querySelector(".groupMediaTimelineSelection");
       if (selection) selection.textContent = item ? `${item.label} · start ${item.start_offset_sec.toFixed(2)}s · duration ${Number(item.duration_sec || 0).toFixed(2)}s` : "Select a timeline clip or edit rows below.";
     };
@@ -117,6 +119,26 @@ window.XTTSStudio = window.XTTSStudio || {};
       setRowValue(row, "duration_sec", nextDuration.toFixed(2));
       rerender?.();
       select(selectedIndex);
+    };
+    const deleteSelected = () => {
+      const row = rows()[selectedIndex];
+      if (!row) return;
+      row.remove();
+      selectedIndex = Math.min(selectedIndex, rows().length - 1);
+      rerender?.();
+      callbacks.onChange?.();
+    };
+    const addDropped = (event) => {
+      const text = event.dataTransfer.getData("application/x-xtts-group-media");
+      if (!text) return;
+      const item = JSON.parse(text);
+      const rect = host.querySelector(".groupMediaTimelineLane")?.getBoundingClientRect?.();
+      const ratio = rect ? clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1) : 0;
+      item.start_offset_sec = ratio * duration;
+      item.duration_sec = item.duration_sec || Math.min(5, duration || 5);
+      callbacks.onAdd?.(item);
+      rerender?.();
+      callbacks.onChange?.();
     };
     host.addEventListener("click", (event) => {
       const block = event.target.closest?.(".groupMediaTimelineBlock");
@@ -136,11 +158,47 @@ window.XTTSStudio = window.XTTSStudio || {};
       } else if (event.target.closest?.(".groupMediaLengthen")) {
         const item = normalizedItemsFromRows(card, duration)[selectedIndex];
         if (item) mutateSelected({ duration_sec: Number(item.duration_sec || item.visual_duration_sec) + 0.5 });
+      } else if (event.target.closest?.(".deleteGroupMediaSelectedBtn")) {
+        deleteSelected();
       }
     });
+    const lane = host.querySelector(".groupMediaTimelineLane");
+    if (lane) {
+      lane.addEventListener("dragover", (event) => {
+        if (!event.dataTransfer.types.includes("application/x-xtts-group-media")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      });
+      lane.addEventListener("drop", (event) => { event.preventDefault(); addDropped(event); });
+    }
+    host.querySelector(".groupMediaTimelineButtons")?.insertAdjacentHTML("beforeend", `<button type="button" class="secondary deleteGroupMediaSelectedBtn">Delete selected</button>`);
     card.querySelectorAll(".groupMediaItem input, .groupMediaItem select").forEach((input) => {
       input.addEventListener("input", () => { rerender?.(); select(Math.min(selectedIndex, rows().length - 1)); });
       input.addEventListener("change", () => { rerender?.(); select(Math.min(selectedIndex, rows().length - 1)); });
+    });
+    host.querySelectorAll(".groupMediaTimelineBlock").forEach((block) => {
+      block.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const index = Number(block.dataset.mediaIndex);
+        select(index);
+        const item = normalizedItemsFromRows(card, duration)[index];
+        const startX = event.clientX;
+        const edge = event.target.classList.contains("left") ? "left" : event.target.classList.contains("right") ? "right" : "move";
+        const start = Number(item.start_offset_sec || 0);
+        const len = Number(item.duration_sec || item.visual_duration_sec || 1);
+        const rect = host.querySelector(".groupMediaTimelineLane")?.getBoundingClientRect?.();
+        const pxPerSec = (rect?.width || 1) / Math.max(0.25, duration);
+        const onMove = (moveEvent) => {
+          const delta = (moveEvent.clientX - startX) / Math.max(1, pxPerSec);
+          if (edge === "left") mutateSelected({ start_offset_sec: start + delta, duration_sec: len - delta });
+          else if (edge === "right") mutateSelected({ duration_sec: len + delta });
+          else mutateSelected({ start_offset_sec: start + delta, duration_sec: len });
+        };
+        const onUp = () => { document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); callbacks.onChange?.(); };
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp, { once: true });
+      });
     });
   }
 

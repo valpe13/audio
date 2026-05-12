@@ -107,7 +107,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupNavItem span { color: #c8d0dd; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .groupNavItem small { color: #aeb7c8; font-size: .72rem; font-family: Consolas, monospace; }
 
-.musicLibraryPanel {
+.musicLibraryPanel, .mediaLibraryPanel {
   position: fixed;
   right: 1rem;
   top: calc(var(--header-height) + var(--side-gap));
@@ -126,6 +126,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
   min-height: 16rem;
 }
 .musicLibraryPanel h2 { font-size: 1rem; margin: 0; }
+.mediaLibraryPanel h2 { font-size: 1rem; margin: 0; }
 .musicLibraryPanel input[type="text"] { padding: .55rem; }
 .musicLibraryPanel button { padding: .5rem .65rem; }
 .musicSettingsGroup .musicLibraryList { max-height: 12rem; }
@@ -137,6 +138,11 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .musicLibraryItem small { color: #aeb7c8; overflow-wrap: anywhere; font-family: Consolas, monospace; }
 .musicLibraryDeleteBtn { flex: 0 0 auto; padding: .28rem .45rem; font-size: .78rem; background: #4a1b24; color: #ffcad3; cursor: pointer; }
 .musicLibraryHint { font-size: .8rem; }
+.mediaLibraryList { flex: 1 1 auto; min-height: 0; display: grid; gap: .45rem; overflow-y: auto; align-content: start; padding-right: .2rem; }
+.mediaLibraryItem { display: grid; gap: .28rem; padding: .55rem; border: 1px solid #30384d; border-radius: 12px; background: #111722; color: #e6ebf5; text-align: left; cursor: grab; }
+.mediaLibraryItem img, .mediaLibraryItem video { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; border-radius: 10px; background: #050711; }
+.mediaLibraryItem strong { color: #86ffd7; overflow-wrap: anywhere; }
+.mediaLibraryItem small { color: #aeb7c8; font-family: Consolas, monospace; }
 
 .screenTabs { display: flex; gap: .6rem; margin: 0 0 1rem; position: sticky; top: calc(var(--header-height) + .35rem); z-index: 15; padding: .5rem 0; background: linear-gradient(180deg, #11131a, rgba(17,19,26,.86)); }
 .screenTab.active { background: #6d8cff; color: white; box-shadow: 0 0 0 2px rgba(109,140,255,.2); }
@@ -178,6 +184,9 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupAiFields dt { color: #ffe66f; font-weight: 900; }
 .groupAiFields dd { margin: 0; color: #dce6f7; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .groupPromptEditor { display: grid; gap: .7rem; padding: .8rem; border: 1px solid #1f5f52; border-radius: 12px; background: linear-gradient(135deg, rgba(20, 69, 61, .55), rgba(17, 23, 34, .9)); }
+.groupPromptSummary { display: flex; justify-content: space-between; gap: .65rem; cursor: pointer; color: #86ffd7; }
+.groupPromptSummary h4 { display: inline; }
+.groupPromptSummary span { color: #aeb7c8; font-family: Consolas, monospace; }
 .groupPromptEditor h4 { margin: 0; color: #86ffd7; }
 .groupPromptGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
 .groupPromptGrid textarea { min-height: 7.5rem; }
@@ -190,6 +199,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaEditor { display: grid; gap: .65rem; margin-top: .5rem; padding: .7rem; border: 1px solid #31426a; border-radius: 12px; background: rgba(18,24,44,.55); }
 .groupMediaEditor h4 { margin: 0; color: #9fb3ff; }
 .groupMediaList { display: grid; gap: .55rem; }
+.legacyHidden { display: none !important; }
 .groupMediaItem { display: grid; grid-template-columns: .6fr 1.6fr 1fr .8fr .7fr .7fr .7fr auto; gap: .45rem; align-items: end; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
 .groupMediaItem.selected { border-color: #ffe66f; box-shadow: 0 0 0 2px rgba(255,230,111,.16); }
 .groupMediaItem label { margin: 0; font-size: .74rem; }
@@ -207,10 +217,25 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaTimelineBlock { position: absolute; top: 10px; bottom: 10px; min-width: 3.5rem; display: grid; align-content: center; gap: .08rem; padding: .35rem .55rem; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: linear-gradient(135deg, #2d6b8c, #6d8cff); color: #fff; text-align: left; overflow: hidden; }
 .groupMediaTimelineBlock.video { background: linear-gradient(135deg, #ff7a45, #8b5cf6); }
 .groupMediaTimelineBlock.selected { box-shadow: 0 0 0 3px rgba(255,230,111,.32), 0 0 18px rgba(255,230,111,.2); filter: brightness(1.12); }
+.groupMediaHandle { position: absolute; top: 0; bottom: 0; width: 10px; background: rgba(255,255,255,.2); }
+.groupMediaHandle.left { left: 0; cursor: w-resize; }
+.groupMediaHandle.right { right: 0; cursor: e-resize; }
 .groupMediaTimelineBlock span, .groupMediaTimelineBlock small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .groupMediaTimelineBlock span { font-weight: 900; }
 .groupMediaTimelineBlock small { color: rgba(255,255,255,.78); }
 .groupMediaTimelineEmpty { display: grid; place-items: center; min-height: 76px; color: #aeb7c8; border: 1px dashed #3a4359; border-radius: 12px; }
+.groupMediaThumbSections { display: grid; gap: .65rem; }
+.groupMediaThumbSection { display: grid; gap: .45rem; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: rgba(9,13,20,.45); }
+.groupMediaThumbSection h5 { margin: 0; color: #ffe66f; }
+.groupMediaThumbGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .5rem; }
+.groupMediaThumb { display: grid; gap: .25rem; padding: .35rem; border: 1px solid #30384d; border-radius: 10px; background: #111722; color: #e6ebf5; text-align: left; cursor: grab; }
+.groupMediaThumb.selected { border-color: #ffe66f; box-shadow: 0 0 0 2px rgba(255,230,111,.18); }
+.groupMediaThumb img, .groupMediaThumb video { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; border-radius: 8px; background: #050711; }
+.groupMediaThumb span { font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.groupMediaPreview { display: grid; gap: .35rem; place-items: center; min-height: 220px; border: 1px solid #30384d; border-radius: 12px; background: #080b11; padding: .65rem; }
+.groupMediaPreview img, .groupMediaPreview video { max-width: 100%; max-height: 420px; width: auto; height: auto; object-fit: contain; border-radius: 10px; }
+.groupMediaPreview small { color: #aeb7c8; font-family: Consolas, monospace; overflow-wrap: anywhere; }
+.groupMediaPreviewEmpty { color: #aeb7c8; }
 .groupSettingsStub { padding: .9rem; border: 1px dashed #8b6b22; border-radius: 12px; background: #2c240f; color: #ffdda1; font-weight: 800; }
 .groupImagePanel { display: grid; gap: .85rem; padding: .85rem; border: 1px solid #30384d; border-radius: 14px; background: #0f131d; }
 .groupImagePanel.image-done, .groupImagePanel.image-fallback { border-color: #2d8142; background: #101b15; }

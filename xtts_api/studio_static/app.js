@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-collapse-stress-installer-v1";
+﻿const FRONTEND_BUILD = "2026-05-12-group-media-workflow-v1";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -66,6 +66,7 @@ const state = {
   selectedChunkId: "",
   selectedGroupId: "",
   groupDetail: { signature: "" },
+  groupMedia: { selectedId: "", libraryTab: "image" },
   comfyuiStatus: null,
   audioDecodeCache: new Map(),
 };
@@ -348,6 +349,7 @@ function settingsPayload() {
     silero_realism_preset: $("sileroRealismPreset")?.value?.trim() || "sleep_safe",
     ai_add_russian_stress_marks: Boolean($("aiAddRussianStressMarks")?.checked),
     ai_stress_model: $("aiStressModel")?.value?.trim() || "",
+    ai_generate_group_prompts_on_split: Boolean($("aiGenerateGroupPromptsOnSplit")?.checked ?? true),
   };
   const xaiInput = $("xaiApiKey");
   const clearXai = $("clearXaiApiKey");
@@ -931,6 +933,8 @@ function renderSettings() {
   const aiStress = $("aiAddRussianStressMarks");
   if (aiStress && document.activeElement !== aiStress) aiStress.checked = Boolean(p.settings.ai_add_russian_stress_marks ?? imageDefaults.ai_add_russian_stress_marks);
   setIfNotFocused("aiStressModel", p.settings.ai_stress_model ?? imageDefaults.ai_stress_model);
+  const aiSplitGroups = $("aiGenerateGroupPromptsOnSplit");
+  if (aiSplitGroups && document.activeElement !== aiSplitGroups) aiSplitGroups.checked = Boolean(p.settings.ai_generate_group_prompts_on_split ?? true);
   updateResolvedImageSettingsHint();
   syncGrokImageSettingsUi();
   updateResolvedVideoI2vSettingsHint();
@@ -2199,7 +2203,12 @@ function projectShapeSummary(project = state.project) {
 
 function getChunks(project = state.project) {
   if (!project) return [];
-  const sourceEntry = chunkSourceCandidates(project).find(({ value }) => Array.isArray(value) && value.length) || chunkSourceCandidates(project).find(({ value }) => Array.isArray(value));
+  const candidates = chunkSourceCandidates(project).concat([
+    { label: "project.arrangement.timeline.chunks", value: project.arrangement?.timeline?.chunks },
+    { label: "project.arrangement.voice.chunks", value: project.arrangement?.voice?.chunks },
+    { label: "project.timeline.items", value: project.timeline?.items },
+  ]);
+  const sourceEntry = candidates.find(({ value }) => Array.isArray(value) && value.length) || candidates.find(({ value }) => Array.isArray(value));
   const source = sourceEntry?.value || [];
   const seen = new Set();
   const chunks = source
@@ -2503,6 +2512,74 @@ function renderGroupNavigator() {
   setActiveGroupNav(state.selectedGroupId || groups[0]?.id || "");
 }
 
+function groupMediaUrl(item) {
+  const raw = item?.url || item?.path || "";
+  if (/^https?:\/\//i.test(raw) || String(raw).startsWith("/api/")) return raw;
+  if (!raw) return "";
+  return item.type === "video" ? `/api/video?path=${encodeURIComponent(raw)}` : `/api/image?path=${encodeURIComponent(raw)}`;
+}
+
+function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
+  const list = card?.querySelector(".groupMediaList");
+  if (!list) return null;
+  list.querySelector(".groupMediaEmpty")?.remove();
+  const rawPath = sourceItem.path || sourceItem.url || "";
+  const row = document.createElement("div");
+  row.className = "groupMediaItem";
+  row.dataset.mediaId = sourceItem.id || `media_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const duration = clamp(sourceItem.duration_sec || sourceItem.visual_duration_sec || sourceItem.default_duration_sec || Math.min(5, Math.max(0.5, groupDuration || 5)), 0.1, 36000);
+  row.innerHTML = `
+    <label>Type <select data-media-field="type"><option value="image" ${sourceItem.type !== "video" ? "selected" : ""}>image</option><option value="video" ${sourceItem.type === "video" ? "selected" : ""}>video</option></select></label>
+    <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(rawPath)}" /></label>
+    <label>Label <input type="text" data-media-field="label" value="${escapeHtml(sourceItem.label || shortPath(rawPath) || "Media")}" /></label>
+    <label>Role <input type="text" data-media-field="role" value="${escapeHtml(sourceItem.role || "main")}" /></label>
+    <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(sourceItem.start_offset_sec || 0).toFixed(2)}" /></label>
+    <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(duration).toFixed(2)}" /></label>
+    <label>Fit <select data-media-field="fit"><option value="cover" ${sourceItem.fit !== "contain" && sourceItem.fit !== "fill" ? "selected" : ""}>cover</option><option value="contain" ${sourceItem.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${sourceItem.fit === "fill" ? "selected" : ""}>fill</option></select></label>
+    <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
+  `;
+  row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
+  list.appendChild(row);
+  return row;
+}
+
+function selectGroupMediaPreview(card, item) {
+  if (!card || !item) return;
+  state.groupMedia.selectedId = item.id || "";
+  card.querySelectorAll(".groupMediaThumb,.groupMediaTimelineBlock").forEach((el) => el.classList.toggle("selected", el.dataset.mediaId === state.groupMedia.selectedId));
+  const preview = card.querySelector(".groupMediaPreview");
+  const url = groupMediaUrl(item);
+  if (!preview || !url) return;
+  preview.innerHTML = item.type === "video"
+    ? `<video src="${escapeHtml(url)}" controls muted loop playsinline></video><small>${escapeHtml(item.label || item.path || item.url || "Video")}</small>`
+    : `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.label || "Image preview")}" /><small>${escapeHtml(item.label || item.path || item.url || "Image")}</small>`;
+}
+
+function renderGroupMediaThumbs(card, group) {
+  const root = card?.querySelector?.(".groupMediaThumbSections");
+  if (!root) return;
+  const items = normalizeGroupMediaItems(group);
+  const sectionHtml = (type, title) => {
+    const subset = items.filter((item) => item.type === type);
+    return `<section class="groupMediaThumbSection"><h5>${title}</h5><div class="groupMediaThumbGrid">${subset.map((item) => {
+      const url = groupMediaUrl(item);
+      const media = type === "video" ? `<video src="${escapeHtml(url)}" muted loop playsinline></video>` : `<img src="${escapeHtml(url)}" alt="" />`;
+      return `<button type="button" class="groupMediaThumb" draggable="true" data-media-id="${escapeHtml(item.id)}">${media}<span>${escapeHtml(item.label || shortPath(item.path || item.url))}</span></button>`;
+    }).join("") || `<p class="groupMediaEmpty">No ${title.toLowerCase()} yet.</p>`}</div></section>`;
+  };
+  root.innerHTML = sectionHtml("image", "Images") + sectionHtml("video", "Videos");
+  root.querySelectorAll(".groupMediaThumb").forEach((thumb) => {
+    const item = items.find((media) => media.id === thumb.dataset.mediaId);
+    thumb.onclick = () => selectGroupMediaPreview(card, item);
+    thumb.ondragstart = (event) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-xtts-group-media", JSON.stringify(item));
+    };
+  });
+  const selected = items.find((item) => item.id === state.groupMedia.selectedId) || items[0];
+  if (selected) selectGroupMediaPreview(card, selected);
+}
+
 function renderGroupDetail(group, { force = false } = {}) {
   const root = $("groupDetail");
   const placeholder = $("groupDetailPlaceholder");
@@ -2547,13 +2624,15 @@ function renderGroupDetail(group, { force = false } = {}) {
     </div>
   `).join("");
   const aiFieldsHtml = `
-    <section class="groupPromptEditor">
+    <details class="groupPromptEditor" open>
+      <summary class="groupPromptSummary"><h4>Editable group prompts</h4><span>click to collapse</span></summary>
       <div class="row between wrap">
-        <h4>Editable group prompts</h4>
+        <span></span>
         <div class="row wrap">
           <button type="button" class="moveGroupUpBtn secondary">Group ↑</button>
           <button type="button" class="moveGroupDownBtn secondary">Group ↓</button>
           <button type="button" class="deleteGroupBtn secondary">Delete group</button>
+          <button type="button" class="generateGroupPromptBtn secondary">Generate prompt for selected group</button>
           <button type="button" class="saveGroupPromptsBtn secondary">Save group</button>
         </div>
       </div>
@@ -2580,10 +2659,12 @@ function renderGroupDetail(group, { force = false } = {}) {
           <label>Default duration, sec <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
         </div>
         <div class="groupMediaTimelineHost"></div>
-        <div class="groupMediaList">${mediaItemsHtml || `<p class="groupMediaEmpty">No extra media yet. Generated image/video is still used automatically.</p>`}</div>
+        <div class="groupMediaThumbSections"></div>
+        <div class="groupMediaPreview" aria-live="polite"><div class="groupMediaPreviewEmpty">Select an image/video thumbnail or timeline block.</div></div>
+        <div class="groupMediaList legacyHidden">${mediaItemsHtml || `<p class="groupMediaEmpty">No extra media yet. Generated image/video is still used automatically.</p>`}</div>
       </section>
       ${group.source ? `<p class="groupPromptSource">Source: ${escapeHtml(group.source)}</p>` : ""}
-    </section>
+    </details>
   `;
   const image = group.image || {};
   const video = group.video || {};
@@ -2663,6 +2744,7 @@ function renderGroupDetail(group, { force = false } = {}) {
   card.querySelector(".moveGroupUpBtn")?.addEventListener("click", () => moveGroup(group.id, "up"));
   card.querySelector(".moveGroupDownBtn")?.addEventListener("click", () => moveGroup(group.id, "down"));
   card.querySelector(".deleteGroupBtn")?.addEventListener("click", () => deleteGroup(group.id));
+  card.querySelector(".generateGroupPromptBtn")?.addEventListener("click", () => generateSelectedGroupPrompt(group.id));
   card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
   card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
     event.preventDefault();
@@ -2675,6 +2757,7 @@ function renderGroupDetail(group, { force = false } = {}) {
   if (generateVideoButton) generateVideoButton.onclick = () => enqueueGroupVideo(group.id, videoExists);
   else console.warn("Group video button missing", { groupId: group.id });
   root.appendChild(card);
+  renderGroupMediaThumbs(card, group);
   renderGroupMediaTimeline(card, group);
 }
 
@@ -2682,9 +2765,13 @@ function renderGroupMediaTimeline(card, group) {
   const host = card?.querySelector?.(".groupMediaTimelineHost");
   const timeline = window.XTTSStudio?.GroupMediaTimeline;
   if (!host || !timeline) return;
-  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration));
+  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration), { selectedId: state.groupMedia.selectedId });
   renderFromRows();
-  timeline.bind(host, card, group, renderFromRows);
+  timeline.bind(host, card, group, renderFromRows, {
+    onSelect: (item) => selectGroupMediaPreview(card, item),
+    onAdd: (item) => addGroupMediaRow(card, item, group.duration),
+    onChange: () => saveGroupPrompts(group.id, card),
+  });
 }
 
 async function saveGroupPrompts(groupId, card) {
@@ -2729,26 +2816,20 @@ async function saveGroupPrompts(groupId, card) {
 
 function addGroupMediaItem(groupId) {
   const card = document.querySelector(`.groupDetailCard`);
-  const list = card?.querySelector(".groupMediaList");
-  if (!list) return;
-  list.querySelector(".groupMediaEmpty")?.remove();
-  const row = document.createElement("div");
-  row.className = "groupMediaItem";
-  row.dataset.mediaId = `media_${Date.now()}`;
-  row.innerHTML = `
-    <label>Type <select data-media-field="type"><option value="image">image</option><option value="video">video</option></select></label>
-    <label>Path/URL <input type="text" data-media-field="path" placeholder="xtts_api/.../image.png or https://..." /></label>
-    <label>Label <input type="text" data-media-field="label" value="Manual media" /></label>
-    <label>Role <input type="text" data-media-field="role" value="main" /></label>
-    <label>Start offset <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="0.00" /></label>
-    <label>Duration <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="0.00" /></label>
-    <label>Fit <select data-media-field="fit"><option value="cover">cover</option><option value="contain">contain</option><option value="fill">fill</option></select></label>
-    <button type="button" class="secondary deleteGroupMediaBtn">Delete media</button>
-  `;
-  row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
-  list.appendChild(row);
+  addGroupMediaRow(card, { type: "image", label: "Manual media" }, selectedGroup()?.duration || 1);
   renderGroupMediaTimeline(card, selectedGroup() || { duration: 1 });
   setStatus(`Added media row for ${groupId}; save group to persist`);
+}
+
+async function generateSelectedGroupPrompt(groupId) {
+  if (!groupId) return;
+  try {
+    setStatus("Generating prompt for selected group…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/prompt${activeProjectQuery()}`, { method: "POST", body: "{}" });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus("Selected group prompt generated");
+  } catch (err) { setStatus(`Group prompt generation failed: ${err.message}`); }
 }
 
 async function moveGroup(groupId, direction) {
@@ -3163,6 +3244,7 @@ function resetTransientProjectUi() {
   state.sidePanelMode = "chunks";
   state.chunkNav = { activeId: "", signature: "" };
   state.musicClip = { selectedId: "", draggingId: "", selectedSourceId: "", selectedLaneId: "" };
+  state.groupMedia = { selectedId: "", libraryTab: state.groupMedia.libraryTab || "image" };
   state.envelope.selectedIndex = -1;
   state.videoSpeed.selectedIndex = -1;
   state.timeline.cursorSec = 0;
@@ -3252,6 +3334,7 @@ function render() {
   safeRenderStep("Grok AI task UI", syncGroupAiTaskUi);
   safeRenderStep("image task UI", syncImageTaskUi);
   safeRenderStep("music library", renderMusicLibraryPanel);
+  safeRenderStep("media library", renderMediaLibraryPanel);
   safeRenderStep("export settings", syncExportSettingsUi);
   safeRenderStep("export", renderExport);
   safeRenderStep("current project", renderCurrentProjectInfo);
@@ -3533,7 +3616,7 @@ $("splitBtn").onclick = async () => {
     setStatus("Splitting…", true);
     state.project = await api(`/api/chunks/split${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ text, max_chars: maxChars, split_pause_after_min, split_pause_after_max }),
+      body: JSON.stringify({ text, max_chars: maxChars, split_pause_after_min, split_pause_after_max, generate_group_prompts: Boolean($("aiGenerateGroupPromptsOnSplit")?.checked ?? true) }),
     });
     const chunks = getChunks();
     state.selectedChunkId = chunks[0]?.id || "";
@@ -3899,6 +3982,42 @@ if (musicLoopChainBtn) musicLoopChainBtn.onclick = () => {
   renderTransportLanes();
   saveMusicArrangement({ mode }).catch((err) => setStatus(`Music loop-chain save failed: ${err.message}`));
 };
+
+function allProjectMediaItems(type = state.groupMedia.libraryTab || "image") {
+  return groupTimelineSpans().flatMap((group) => normalizeGroupMediaItems(group).filter((item) => item.type === type).map((item) => ({ ...item, group_id: group.id, group_title: group.title })));
+}
+
+function renderMediaLibraryPanel() {
+  const root = $("mediaLibraryList");
+  if (!root || !state.project) return;
+  document.querySelectorAll(".mediaLibraryTab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.type === state.groupMedia.libraryTab);
+    button.classList.toggle("secondary", button.dataset.type !== state.groupMedia.libraryTab);
+  });
+  const items = allProjectMediaItems(state.groupMedia.libraryTab);
+  if (!items.length) {
+    root.innerHTML = `<div class="chunkNavEmpty"><strong>No ${escapeHtml(state.groupMedia.libraryTab)} media yet</strong><small>Generated group media appears here and can be dragged into another group.</small></div>`;
+    return;
+  }
+  root.innerHTML = "";
+  for (const item of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mediaLibraryItem";
+    button.draggable = true;
+    const url = groupMediaUrl(item);
+    button.innerHTML = `${item.type === "video" ? `<video src="${escapeHtml(url)}" muted loop playsinline></video>` : `<img src="${escapeHtml(url)}" alt="" />`}<strong>${escapeHtml(item.label || shortPath(item.path || item.url))}</strong><small>${escapeHtml(item.group_title || item.group_id || "group")}</small>`;
+    button.ondragstart = (event) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-xtts-group-media", JSON.stringify({ ...item, id: `media_${Date.now()}_${Math.random().toString(16).slice(2)}` }));
+    };
+    root.appendChild(button);
+  }
+}
+
+document.querySelectorAll(".mediaLibraryTab").forEach((button) => {
+  button.onclick = () => { state.groupMedia.libraryTab = button.dataset.type || "image"; renderMediaLibraryPanel(); };
+});
 
 const resetMusicAutomationBtn = $("resetMusicAutomationBtn");
 if (resetMusicAutomationBtn) resetMusicAutomationBtn.onclick = resetMusicEnvelope;

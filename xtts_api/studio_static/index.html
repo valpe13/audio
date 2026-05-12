@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-collapse-stress-installer-v1" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-group-media-workflow-v1" />
   </head>
   <body>
     <header>
@@ -29,6 +29,16 @@
       </div>
       <div id="chunkNavList" class="chunkNavList">No chunks.</div>
       <div id="groupNavList" class="groupNavList" hidden>No groups.</div>
+    </aside>
+
+    <aside id="mediaLibraryPanel" class="mediaLibraryPanel" aria-label="Generated media library">
+      <h2>Media library</h2>
+      <div class="sideMiniTabs" aria-label="Media library tabs">
+        <button type="button" class="mediaLibraryTab sideMiniTab active" data-type="image">Images</button>
+        <button type="button" class="mediaLibraryTab sideMiniTab secondary" data-type="video">Videos</button>
+      </div>
+      <div id="mediaLibraryList" class="mediaLibraryList">Generated media will appear here.</div>
+      <p class="musicLibraryHint">Drag thumbnails into the selected group timeline to copy media into that group.</p>
     </aside>
 
     <main>
@@ -80,21 +90,27 @@
                 <label>Максимум символов в чанке <input id="maxChars" type="number" min="60" max="320" value="190" /></label>
                 <label>Пауза после предложения: минимум, сек <input id="splitPauseAfterMin" type="number" min="0" max="30" step="0.05" value="0.18" /></label>
                 <label>Пауза после предложения: максимум, сек <input id="splitPauseAfterMax" type="number" min="0" max="30" step="0.05" value="0.35" /></label>
-                <label>Stress mark style
-                  <select id="ttsStressMarkStyle">
-                    <option value="acute">acute: молоко́</option>
-                    <option value="plus">plus: молок+о</option>
-                    <option value="auto">auto/backend (Silero uses plus)</option>
-                    <option value="plain">plain / strip stress marks</option>
-                  </select>
-                </label>
-                <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Enable pronunciation dictionary/stress preprocessing</label>
-                <label>Dictionary path <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
-                <label>Grok stress model override
-                  <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
-                </label>
-                <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
               </div>
+              <details class="settingsSubsection chunkStressSettings" open>
+                <summary>Chunk stress / pronunciation settings</summary>
+                <div class="grid two imageSettingsGrid">
+                  <label>Stress mark style
+                    <select id="ttsStressMarkStyle">
+                      <option value="acute">acute: молоко́</option>
+                      <option value="plus">plus: молок+о</option>
+                      <option value="auto">auto/backend (Silero uses plus)</option>
+                      <option value="plain">plain / strip stress marks</option>
+                    </select>
+                  </label>
+                  <label class="inlineCheck"><input id="ttsPronunciationPreprocessEnabled" type="checkbox" checked /> Enable pronunciation dictionary/stress preprocessing</label>
+                  <label>Dictionary path <input id="ttsPronunciationDictionaryPath" type="text" placeholder="xtts_api/pronunciation_dictionary.json" /></label>
+                  <label>Grok stress model override
+                    <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
+                  </label>
+                  <label class="inlineCheck"><input id="aiAddRussianStressMarks" type="checkbox" /> After standard split, use Grok to add Russian stress marks to existing chunks</label>
+                  <label class="inlineCheck"><input id="aiGenerateGroupPromptsOnSplit" type="checkbox" checked /> Generate group prompts during smart splitting</label>
+                </div>
+              </details>
               <div class="row wrap settingsActions">
                 <button id="splitBtn" type="button">Разделить на чанки</button>
                 <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">AI-группировка через Grok</button>
@@ -554,9 +570,9 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-12-collapse-stress-installer-v1"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-12-collapse-stress-installer-v1"></script>
-    <script src="/studio/app.js?v=2026-05-12-collapse-stress-installer-v1"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-12-group-media-workflow-v1"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-group-media-workflow-v1"></script>
+    <script src="/studio/app.js?v=2026-05-12-group-media-workflow-v1"></script>
   </body>
 </html>
 
