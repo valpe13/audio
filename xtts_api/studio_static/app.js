@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-12-studio-workflow-editing-v1";
+﻿const FRONTEND_BUILD = "2026-05-12-studio-cleanup-stage1-v1";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -387,7 +387,12 @@ function setImageQualityPreset(quality, { updateFields = true } = {}) {
 function updateResolvedImageSettingsHint() {
   const resolved = resolvedImagePreset();
   const hint = $("imageResolvedSettings");
-  if (hint) hint.textContent = `RealVisXL · ${resolved.label} · ${resolved.width}×${resolved.height} · ${resolved.steps} steps · CFG ${resolved.cfg}`;
+  const provider = $("imageProvider")?.value || state.project?.settings?.image_provider || "comfyui";
+  const model = $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl";
+  const isGrok = [provider, model].some((value) => String(value || "").toLowerCase() === "grok");
+  if (hint) hint.textContent = isGrok
+    ? `Grok/xAI image API · ${$("imageGrokModel")?.value || GROK_IMAGE_MODEL} · ${resolved.label} sizing hint ${resolved.width}×${resolved.height}`
+    : `RealVisXL · ${resolved.label} · ${resolved.width}×${resolved.height} · ${resolved.steps} steps · CFG ${resolved.cfg}`;
   const active = document.activeElement;
   const setValue = (id, value) => { const el = $(id); if (el && active !== el) el.value = String(value); };
   setValue("imageWidth", resolved.width);
@@ -396,9 +401,7 @@ function updateResolvedImageSettingsHint() {
   setValue("imageCfg", resolved.cfg);
   setValue("imageSampler", resolved.sampler);
   setValue("imageScheduler", resolved.scheduler);
-  setValue("imageModelCheckpoint", REALVISXL_CHECKPOINT);
-  setValue("imageModel", "realvisxl");
-  setValue("imageProvider", "comfyui");
+  if (!isGrok) setValue("imageModelCheckpoint", REALVISXL_CHECKPOINT);
 }
 
 function selectedVideoI2vQualityPreset() {
@@ -924,6 +927,7 @@ function renderSettings() {
   if (aiStress && document.activeElement !== aiStress) aiStress.checked = Boolean(p.settings.ai_add_russian_stress_marks ?? imageDefaults.ai_add_russian_stress_marks);
   setIfNotFocused("aiStressModel", p.settings.ai_stress_model ?? imageDefaults.ai_stress_model);
   updateResolvedImageSettingsHint();
+  syncGrokImageSettingsUi();
   updateResolvedVideoI2vSettingsHint();
   renderFluxWorkflowNote();
   renderComfyuiStatus();
@@ -948,6 +952,21 @@ function renderFluxWorkflowNote() {
   const model = $("imageModel")?.value || state.project?.settings?.image_model || "sdxl";
   const workflowMode = $("imageWorkflowMode")?.value || state.project?.settings?.image_workflow_mode || "generated";
   note.hidden = !(model === "flux" && workflowMode === "generated");
+}
+
+function syncGrokImageSettingsUi() {
+  const provider = $("imageProvider");
+  const model = $("imageModel");
+  const selected = String(provider?.value || "").toLowerCase() === "grok" || String(model?.value || "").toLowerCase() === "grok";
+  if (selected) {
+    if (provider && document.activeElement !== provider) provider.value = "grok";
+    if (model && document.activeElement !== model) model.value = "grok";
+  }
+  const panel = $("grokImageSettingsPanel");
+  if (panel) panel.classList.toggle("active", selected);
+  const grokModel = $("imageGrokModel");
+  if (grokModel) grokModel.disabled = !selected;
+  updateResolvedImageSettingsHint();
 }
 
 function renderComfyuiStatus() {
@@ -2512,7 +2531,7 @@ function renderGroupDetail(group, { force = false } = {}) {
   ];
   const mediaItems = normalizeGroupMediaItems(group);
   const mediaItemsHtml = mediaItems.map((item, index) => `
-    <div class="groupMediaItem" data-media-index="${index}">
+    <div class="groupMediaItem" data-media-index="${index}" data-media-id="${escapeHtml(item.id || `media_${index}`)}">
       <label>Type <select data-media-field="type"><option value="image" ${item.type === "image" ? "selected" : ""}>image</option><option value="video" ${item.type === "video" ? "selected" : ""}>video</option></select></label>
       <label>Path/URL <input type="text" data-media-field="path" value="${escapeHtml(item.path || item.url || "")}" /></label>
       <label>Label <input type="text" data-media-field="label" value="${escapeHtml(item.label || "")}" /></label>
@@ -2556,6 +2575,7 @@ function renderGroupDetail(group, { force = false } = {}) {
           <label>Layout <select data-group-setting="media_layout"><option value="sequence" ${(group.media_layout || "sequence") === "sequence" ? "selected" : ""}>sequence</option><option value="overlay" ${group.media_layout === "overlay" ? "selected" : ""}>overlay</option><option value="background" ${group.media_layout === "background" ? "selected" : ""}>background</option><option value="manual" ${group.media_layout === "manual" ? "selected" : ""}>manual</option></select></label>
           <label>Default duration, sec <input type="number" min="0" step="0.1" data-group-setting="default_media_duration_sec" value="${Number(group.default_media_duration_sec || 0).toFixed(1)}" /></label>
         </div>
+        <div class="groupMediaTimelineHost"></div>
         <div class="groupMediaList">${mediaItemsHtml || `<p class="groupMediaEmpty">No extra media yet. Generated image/video is still used automatically.</p>`}</div>
       </section>
       ${group.source ? `<p class="groupPromptSource">Source: ${escapeHtml(group.source)}</p>` : ""}
@@ -2651,6 +2671,16 @@ function renderGroupDetail(group, { force = false } = {}) {
   if (generateVideoButton) generateVideoButton.onclick = () => enqueueGroupVideo(group.id, videoExists);
   else console.warn("Group video button missing", { groupId: group.id });
   root.appendChild(card);
+  renderGroupMediaTimeline(card, group);
+}
+
+function renderGroupMediaTimeline(card, group) {
+  const host = card?.querySelector?.(".groupMediaTimelineHost");
+  const timeline = window.XTTSStudio?.GroupMediaTimeline;
+  if (!host || !timeline) return;
+  const renderFromRows = () => timeline.render(host, group, timeline.normalizedItemsFromRows(card, group.duration));
+  renderFromRows();
+  timeline.bind(host, card, group, renderFromRows);
 }
 
 async function saveGroupPrompts(groupId, card) {
@@ -2713,6 +2743,7 @@ function addGroupMediaItem(groupId) {
   `;
   row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
   list.appendChild(row);
+  renderGroupMediaTimeline(card, selectedGroup() || { duration: 1 });
   setStatus(`Added media row for ${groupId}; save group to persist`);
 }
 
@@ -3584,9 +3615,9 @@ for (const id of ["videoI2vGrokModel", "videoI2vGrokDurationSec", "videoI2vGrokR
 const checkComfyuiBtn = $("checkComfyuiBtn");
 if (checkComfyuiBtn) checkComfyuiBtn.onclick = checkComfyuiStatus;
 
-for (const id of ["imageModel", "imageWorkflowMode"]) {
+for (const id of ["imageModel", "imageProvider", "imageWorkflowMode", "imageGrokModel"]) {
   const el = $(id);
-  if (el) el.addEventListener("change", renderFluxWorkflowNote);
+  if (el) el.addEventListener("change", () => { renderFluxWorkflowNote(); syncGrokImageSettingsUi(); });
 }
 
 $("timelineScrubber").oninput = () => {

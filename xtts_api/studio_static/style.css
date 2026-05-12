@@ -190,9 +190,26 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 20rem 1.2rem 18rem; }
 .groupMediaEditor h4 { margin: 0; color: #9fb3ff; }
 .groupMediaList { display: grid; gap: .55rem; }
 .groupMediaItem { display: grid; grid-template-columns: .6fr 1.6fr 1fr .8fr .7fr .7fr .7fr auto; gap: .45rem; align-items: end; padding: .55rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
+.groupMediaItem.selected { border-color: #ffe66f; box-shadow: 0 0 0 2px rgba(255,230,111,.16); }
 .groupMediaItem label { margin: 0; font-size: .74rem; }
 .groupMediaItem input, .groupMediaItem select { padding: .42rem; }
 .groupMediaEmpty { color: #aeb7c8; }
+.groupMediaTimelineHost { display: grid; gap: .45rem; padding: .65rem; border: 1px solid #274f76; border-radius: 12px; background: linear-gradient(135deg, rgba(20, 37, 58, .9), rgba(9,13,20,.74)); }
+.groupMediaTimelineHead { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; }
+.groupMediaTimelineHead strong { color: #86ffd7; }
+.groupMediaTimelineHead small, .groupMediaTimelineInspector { color: #aeb7c8; font-family: Consolas, monospace; }
+.groupMediaTimelineButtons { display: flex; flex-wrap: wrap; gap: .35rem; }
+.groupMediaTimelineButtons button { padding: .38rem .55rem; font-size: .78rem; }
+.groupMediaTimelineRuler { position: relative; height: 20px; border-bottom: 1px solid #30384d; }
+.groupMediaTimelineRuler span { position: absolute; top: 0; transform: translateX(-50%); color: #ffe66f; font-family: Consolas, monospace; font-size: .72rem; }
+.groupMediaTimelineLane { position: relative; min-height: 76px; border: 1px solid #30384d; border-radius: 12px; overflow: hidden; background: repeating-linear-gradient(90deg, #0f131d 0 7.5%, #182338 7.7% 7.9%); }
+.groupMediaTimelineBlock { position: absolute; top: 10px; bottom: 10px; min-width: 3.5rem; display: grid; align-content: center; gap: .08rem; padding: .35rem .55rem; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: linear-gradient(135deg, #2d6b8c, #6d8cff); color: #fff; text-align: left; overflow: hidden; }
+.groupMediaTimelineBlock.video { background: linear-gradient(135deg, #ff7a45, #8b5cf6); }
+.groupMediaTimelineBlock.selected { box-shadow: 0 0 0 3px rgba(255,230,111,.32), 0 0 18px rgba(255,230,111,.2); filter: brightness(1.12); }
+.groupMediaTimelineBlock span, .groupMediaTimelineBlock small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.groupMediaTimelineBlock span { font-weight: 900; }
+.groupMediaTimelineBlock small { color: rgba(255,255,255,.78); }
+.groupMediaTimelineEmpty { display: grid; place-items: center; min-height: 76px; color: #aeb7c8; border: 1px dashed #3a4359; border-radius: 12px; }
 .groupSettingsStub { padding: .9rem; border: 1px dashed #8b6b22; border-radius: 12px; background: #2c240f; color: #ffdda1; font-weight: 800; }
 .groupImagePanel { display: grid; gap: .85rem; padding: .85rem; border: 1px solid #30384d; border-radius: 14px; background: #0f131d; }
 .groupImagePanel.image-done, .groupImagePanel.image-fallback { border-color: #2d8142; background: #101b15; }
@@ -255,12 +272,15 @@ textarea { min-height: 220px; resize: vertical; line-height: 1.45; }
 .originalTextDetails textarea { min-height: 70px; background: #0c1018; color: #c8d0dd; }
 input[type="number"] { width: 7rem; }
 input[type="range"] { vertical-align: middle; width: 12rem; }
-.xaiKeySettings { margin: .5rem 0; padding: .65rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
+.settingsSection { margin: .65rem 0; padding: .72rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
+.settingsSection > summary { cursor: pointer; color: #86ffd7; font-weight: 900; margin: -.15rem 0 .55rem; }
+.settingsSection:not([open]) > summary { margin-bottom: 0; }
+.xaiKeySettings { background: #0f131d; }
 .inlineCheck { display: inline-flex; align-items: center; gap: .45rem; margin: .25rem 0; color: #ffdda1; }
 .xaiApiKeyHint { font-size: .82rem; font-family: Consolas, monospace; }
 .xaiApiKeyHint.configured { color: #8ee5a2; }
 .xaiApiKeyHint.missing { color: #ffb0c0; }
-.imageSimpleSettings { margin-top: .8rem; padding: .9rem; border: 1px solid #2d6b8c; border-radius: 14px; background: linear-gradient(135deg, rgba(28, 54, 78, .8), rgba(15, 19, 29, .96)); box-shadow: 0 10px 26px rgba(45,107,140,.16); }
+.imageSimpleSettings { border-color: #2d6b8c; background: linear-gradient(135deg, rgba(28, 54, 78, .8), rgba(15, 19, 29, .96)); box-shadow: 0 10px 26px rgba(45,107,140,.16); }
 .imageSimpleHead { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; margin-bottom: .65rem; }
 .imageSimpleHead h3 { margin: 0 0 .25rem; color: #86ffd7; }
 .imageSimpleHead p { margin: 0; color: #c8d0dd; }
@@ -283,7 +303,9 @@ input[type="range"] { vertical-align: middle; width: 12rem; }
 .videoI2vGrokSettings { margin-top: .85rem; padding: .75rem; border: 2px solid #624c19; border-radius: 14px; background: linear-gradient(135deg, rgba(55, 38, 10, .92), rgba(15, 19, 29, .98)); }
 .videoI2vGrokSettings.active { border-color: #ffe66f; box-shadow: 0 0 0 2px rgba(255,230,111,.14); }
 .videoI2vGrokSettings.inactive { opacity: .82; }
-.videoI2vGrokSettings legend { padding: 0 .4rem; color: #ffe66f; font-weight: 900; }
+.videoI2vGrokSettings summary { color: #ffe66f; font-weight: 900; cursor: pointer; }
+.grokImageSettingsPanel { padding: .45rem; border: 1px solid #624c19; border-radius: 10px; background: #1c170b; }
+.grokImageSettingsPanel.active { border-color: #ffe66f; box-shadow: 0 0 0 2px rgba(255,230,111,.12); }
 .videoI2vGrokEnableHint { margin: .2rem 0 .45rem; color: #eef1f7; font-weight: 850; }
 .videoI2vGrokWarning { margin: .2rem 0 .55rem; padding: .52rem .65rem; border: 1px solid #8b6b22; border-radius: 10px; background: #2c240f; color: #ffdda1; font-weight: 850; }
 .imageSizePresets { display: flex; flex-wrap: wrap; gap: .45rem; margin: .7rem 0; padding: .65rem; border: 1px solid #293147; border-radius: 12px; background: #111722; }

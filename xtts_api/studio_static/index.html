@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-workflow-editing-v1" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-12-studio-cleanup-stage1-v1" />
   </head>
   <body>
     <header>
@@ -102,7 +102,8 @@
             <label>Music path
               <input id="musicPath" type="text" placeholder="optional WAV/FLAC/MP3 if supported by soundfile" />
             </label>
-            <div class="xaiKeySettings">
+            <details class="settingsSection xaiKeySettings" open>
+              <summary>Grok / xAI keys and AI helpers</summary>
               <label>Grok / xAI API key
                 <input id="xaiApiKey" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key" />
               </label>
@@ -113,8 +114,8 @@
                 <input id="aiStressModel" type="text" placeholder="empty = same model/default as AI grouping" />
               </label>
               <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
-            </div>
-            <details class="ttsStressSettings">
+            </details>
+            <details class="settingsSection ttsStressSettings">
               <summary>TTS backend / Russian stress control</summary>
               <div class="grid two imageSettingsGrid">
                 <label>TTS backend
@@ -150,11 +151,12 @@
               <label>Voice volume <input id="voiceVolume" type="range" min="0" max="2" step="0.01" value="1" /><span id="voiceVolumeValue">1.00</span></label>
               <label>Music volume <input id="musicVolume" type="range" min="0" max="2" step="0.01" value="0.18" /><span id="musicVolumeValue">0.18</span></label>
             </div>
-            <section class="imageSimpleSettings" aria-label="RealVisXL image settings">
+            <details class="settingsSection imageSimpleSettings" open aria-label="Image generation settings">
+              <summary>Image generation: RealVisXL or Grok</summary>
               <div class="imageSimpleHead">
                 <div>
-                  <h3>Картинки RealVisXL</h3>
-                  <p>Одна модель: RealVisXL через ComfyUI. Выберите только качество, ориентацию и стиль.</p>
+                  <h3>Картинки RealVisXL / Grok</h3>
+                  <p>Choose image provider in Advanced Image settings; presets keep common size/quality controls here.</p>
                 </div>
                 <span class="realvisxlBadge">RealVisXL</span>
               </div>
@@ -185,8 +187,9 @@
                 </label>
               </div>
               <p id="imageResolvedSettings" class="imageResolvedSettings">RealVisXL · balanced · 896×1152 · 22 steps</p>
-            </section>
-            <section class="videoI2vSettings" aria-label="Video animation backend settings">
+            </details>
+            <details class="settingsSection videoI2vSettings" open aria-label="Video animation backend settings">
+              <summary>Video generation backend and quality</summary>
               <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
               <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok модель автоматически: grok-imagine-video.</p>
               <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
@@ -234,8 +237,8 @@
                 <label>Sampler <input id="videoI2vSampler" type="text" placeholder="euler" /></label>
                 <label>Scheduler <input id="videoI2vScheduler" type="text" placeholder="normal" /></label>
               </div>
-              <fieldset id="videoI2vGrokSettings" class="videoI2vGrokSettings">
-                <legend>Grok Imagine Video settings</legend>
+              <details id="videoI2vGrokSettings" class="videoI2vGrokSettings" open>
+                <summary>Grok Imagine Video settings</summary>
                 <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
                 <p class="videoI2vGrokWarning">Hosted xAI image-to-video backend. Queuing generation may make a paid API call. Use diagnostics before bulk generation; this UI never runs generation until you press group video buttons.</p>
                 <div class="grid two imageSettingsGrid">
@@ -263,14 +266,14 @@
                   </label>
                   <label>Crossfade, sec <input id="videoI2vGrokCrossfadeSec" type="number" min="0.1" max="2" step="0.1" value="0.5" /></label>
                 </div>
-              </fieldset>
+              </details>
               <p class="imageResolvedSettings">For less camera movement, use “Object motion — locked camera” or “Ambient nature” and keep group animation prompts explicit: locked camera, static camera, no camera movement; animate objects only, leaves swaying, grass moving, water ripples, smoke drifting, fire flicker. Negative prompt terms should include camera pan, camera zoom, camera orbit, dolly, drift, whole image moving. SVD may still drift because it is image-conditioned; AnimateDiff can follow text/object motion better, but usually needs masks, ControlNet, or IPAdapter for reliable isolated object motion.</p>
               <p class="imageResolvedSettings">Target duration extends the generated MP4 cheaply with VideoHelperSuite repeats/ping-pong of the sampled motion; it does not create extra unique SVD frames. For 1-minute landscape loops, use “Landscape long loop” or raise Frames manually: it creates more unique SVD frames but lowers steps and may be slower or slightly softer. Loop playback speed affects only browser preview video elements, not the generated file.</p>
               <p class="imageResolvedSettings">Practical quality path: keep SVD-XT for mass production and RealVisXL image fidelity; use SD1.5 AnimateDiff only for experiments where prompt/object motion matters more than matching the source image. Use generated_hotshotxl only after checking /api/comfyui/animatediff-sdxl/diagnostics: it needs AnimateDiff-Evolved, VideoHelperSuite, RealVisXL/another SDXL checkpoint, and an SDXL-compatible motion model such as HotshotXL under ComfyUI/models/animatediff_models.</p>
               <p class="imageResolvedSettings">Grok Imagine Video uses /api/xai/imagine-video/diagnostics for setup checks. Confirmed settings are model grok-imagine-video, aspect ratios 16:9/9:16, and resolutions 480p/720p; 1080p is not exposed until official docs confirm it. Prompt-only looping is not guaranteed, so Grok videos default to ffmpeg ping-pong post-processing after download; use crossfade only when forward motion is more important than seam reliability.</p>
-            </section>
-            <details class="imageSettings">
-              <summary>Advanced ComfyUI</summary>
+            </details>
+            <details class="settingsSection imageSettings">
+              <summary>Advanced Image / ComfyUI / Grok provider</summary>
               <div class="grid two imageSettingsGrid">
                 <label>Provider
                   <select id="imageProvider">
@@ -290,7 +293,7 @@
                     <option value="custom">custom</option>
                   </select>
                 </label>
-                <label>Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
+                <label id="grokImageSettingsPanel" class="grokImageSettingsPanel">Grok image model <input id="imageGrokModel" type="text" placeholder="grok-2-image" /></label>
                 <label>Seed <input id="imageSeed" type="number" step="1" value="0" /></label>
                 <label>Width <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
                 <label>Height <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
@@ -528,7 +531,8 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/app.js?v=2026-05-12-studio-workflow-editing-v1"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-12-studio-cleanup-stage1-v1"></script>
+    <script src="/studio/app.js?v=2026-05-12-studio-cleanup-stage1-v1"></script>
   </body>
 </html>
 
