@@ -6128,7 +6128,94 @@ def run_ffmpeg(cmd: list[str], cwd: Path | None = None) -> None:
 
 
 def ass_escape(text: Any) -> str:
-    return str(text or "").replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", r"\N")
+    linebreak_token = "\uE000ASS_LINEBREAK\uE000"
+    value = str(text or "").replace(r"\N", linebreak_token).replace(r"\n", linebreak_token)
+    value = value.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", r"\N")
+    return value.replace(linebreak_token, r"\N")
+
+
+def subtitle_export_layout(width: int, height: int, settings: dict[str, Any]) -> dict[str, float | int]:
+    normalized = normalize_subtitle_defaults(settings)
+    preview_font_size = max(8.0, min(160.0, float(normalized.get("font_size") or DEFAULT_SUBTITLE_SETTINGS["font_size"])))
+    is_landscape = int(width or 0) > int(height or 0)
+    reference_height = SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX if is_landscape else SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX
+    reference_width = SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX if is_landscape else SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX
+    preview_to_video_scale = max(0.1, float(height or reference_height) / reference_height)
+    font_size = max(8, min(480, int(round(preview_font_size * preview_to_video_scale))))
+    outline = max(0, min(48, int(round(float(normalized.get("outline") or 2) * preview_to_video_scale))))
+    base_margin_h = max(8, int(round(reference_width * 0.05 * preview_to_video_scale)))
+    base_margin_v = max(8, int(round(reference_height * 0.05 * preview_to_video_scale)))
+    edge_gutter = max(8, int(round((preview_font_size * 0.18 + float(normalized.get("outline") or 2) * 2.0) * preview_to_video_scale)))
+    frame_width = max(1, int(width or reference_width))
+    frame_height = max(1, int(height or reference_height))
+    margin_h = max(8, min(frame_width // 3, base_margin_h + edge_gutter))
+    margin_v = max(8, min(frame_height // 3, base_margin_v + edge_gutter))
+    return {
+        "font_size": font_size,
+        "outline": outline,
+        "margin_h": margin_h,
+        "margin_v": margin_v,
+        "preview_to_video_scale": preview_to_video_scale,
+        "reference_width": reference_width,
+        "reference_height": reference_height,
+    }
+
+
+def estimate_ass_word_width(word: str, font_size: float) -> float:
+    width = 0.0
+    for char in str(word or ""):
+        if char.isspace():
+            width += font_size * 0.32
+        elif re.match(r"[ilI1.,:;!|'`’]", char):
+            width += font_size * 0.28
+        elif re.match(r"[mwMWШЩЮЖФ@%#]", char):
+            width += font_size * 0.82
+        elif re.match(r"[А-Яа-яЁё]", char):
+            width += font_size * 0.66
+        elif re.match(r"[A-Za-z0-9]", char):
+            width += font_size * 0.56
+        else:
+            width += font_size * 0.62
+    return width
+
+
+def wrap_ass_subtitle_text(text: Any, width: int, height: int, settings: dict[str, Any]) -> str:
+    r"""Wrap ASS dialogue text with explicit \N line breaks to mirror preview CSS wrapping.
+
+    Browser preview uses a 5% safe-area box plus inline text padding and
+    `overflow-wrap:anywhere`.  libass auto-wrap is renderer-dependent and can
+    leave progressive 5-word captions as one over-wide line, so export inserts
+    deterministic breaks based on estimated rendered width.
+    """
+    plain = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not plain:
+        return ""
+    layout = subtitle_export_layout(width, height, settings)
+    font_size = float(layout["font_size"])
+    frame_width = max(1, int(width or layout["reference_width"]))
+    css_safe_width = frame_width * 0.90
+    text_padding = font_size * 0.90
+    available_width = max(font_size * 1.5, css_safe_width - text_padding)
+    # ASS style margins include an extra rasterization gutter beyond preview's
+    # 5% safe area, so keep explicit wrapping inside the stricter of both boxes.
+    available_width = min(available_width, max(font_size * 1.5, frame_width - (2 * float(layout["margin_h"])) - text_padding))
+    space_width = estimate_ass_word_width(" ", font_size)
+    lines: list[str] = []
+    current_words: list[str] = []
+    current_width = 0.0
+    for word in plain.split(" "):
+        word_width = estimate_ass_word_width(word, font_size)
+        candidate_width = word_width if not current_words else current_width + space_width + word_width
+        if current_words and candidate_width > available_width:
+            lines.append(" ".join(current_words))
+            current_words = [word]
+            current_width = word_width
+        else:
+            current_words.append(word)
+            current_width = candidate_width
+    if current_words:
+        lines.append(" ".join(current_words))
+    return r"\N".join(lines)
 
 
 def ass_time(seconds: float) -> str:
@@ -6288,22 +6375,11 @@ def export_subtitle_events(project: dict[str, Any]) -> list[dict[str, Any]]:
 
 def ass_style_from_defaults(defaults: dict[str, Any], width: int, height: int, name: str = "Default") -> str:
     settings = normalize_subtitle_defaults(defaults)
-    preview_font_size = max(8, min(160, float(settings.get("font_size") or DEFAULT_SUBTITLE_SETTINGS["font_size"])))
-    # Preview subtitles are authored directly in the standard export coordinate
-    # space: 1080x1920 portrait or 1920x1080 landscape. The browser scales that
-    # whole frame down for usability, so ASS only scales when exporting to a
-    # non-standard height.
-    reference_height = SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX if int(width or 0) > int(height or 0) else SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX
-    reference_width = SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX if int(width or 0) > int(height or 0) else SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX
-    preview_to_video_scale = max(0.1, float(height or reference_height) / reference_height)
-    font_size = max(8, min(480, int(round(preview_font_size * preview_to_video_scale))))
-    outline = max(0, min(48, int(round(float(settings.get("outline") or 2) * preview_to_video_scale))))
-    # Match the preview CSS 5% margins in export-coordinate pixels, then convert
-    # through the same preview-to-video scale used for font size.
-    margin_h = max(8, int(round(reference_width * 0.05)))
-    margin_v = max(8, int(round(reference_height * 0.05)))
-    margin_h = max(8, int(round(margin_h * preview_to_video_scale)))
-    margin_v = max(8, int(round(margin_v * preview_to_video_scale)))
+    layout = subtitle_export_layout(width, height, settings)
+    font_size = int(layout["font_size"])
+    outline = int(layout["outline"])
+    margin_h = int(layout["margin_h"])
+    margin_v = int(layout["margin_v"])
     background_alpha = int(round(255 * (1.0 - max(0.0, min(1.0, float(settings.get("background_opacity", 0.45)))))))
     return ",".join([
         f"Style: {name}",
@@ -6344,7 +6420,8 @@ def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int,
         position = str(event.get("position") or "bottom")
         align = 8 if position == "top" else 5 if position == "center" else 2
         style_name = style_for(event)
-        text = ass_escape(event.get("text"))
+        wrapped_text = wrap_ass_subtitle_text(event.get("text"), width, height, event)
+        text = ass_escape(wrapped_text)
         events.append(f"Dialogue: 0,{ass_time(float(event.get('start') or 0.0))},{ass_time(float(event.get('end') or 0.0))},{style_name},,0,0,0,,{{\\an{align}}}{text}")
     if not events:
         return False
