@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-grok-chunk-images"
+STUDIO_BUILD = "2026-05-13-xtts-studio-refinements"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -650,6 +650,18 @@ class GroupImagesRequest(BaseModel):
 
 
 class ChunkImagesRequest(BaseModel):
+    missing_only: bool = True
+    force: bool = False
+    replace: bool = False
+
+
+class ChunkVideoRequest(BaseModel):
+    force: bool = False
+    replace: bool = False
+    missing_only: bool = False
+
+
+class ChunkVideosRequest(BaseModel):
     missing_only: bool = True
     force: bool = False
     replace: bool = False
@@ -4569,6 +4581,67 @@ def run_comfyui_video_i2v_workflow(project: dict[str, Any], group: dict[str, Any
     return run_comfyui_svd_i2v_workflow(project, group, settings, video_settings, output_prefix)
 
 
+def group_with_chunk_video_source(project: dict[str, Any], group: dict[str, Any], chunk_id: str) -> tuple[dict[str, Any], dict[str, Any], tuple[float, float]]:
+    chunk = find_chunk_in_group(project, group, chunk_id)
+    start, duration = chunk_timeline_span(project, group, chunk_id)
+    items = normalize_group_media_items(group.get("media_items"), group)
+    source_item = next((item for item in items if item.get("type") == "image" and item.get("prompt_scope") == "chunk" and str(item.get("chunk_id") or "") == str(chunk_id) and item.get("path")), None)
+    if not source_item:
+        raise HTTPException(status_code=400, detail="Generate the chunk image before chunk video")
+    prompt_group = copy.deepcopy(group)
+    prompt_group["id"] = f"{group.get('id')}_{chunk_id}"
+    prompt_group["title"] = f"{group.get('title') or group.get('id')} · чанк {int(chunk.get('order') or 0) + 1}"
+    prompt_group["image"] = {"path": source_item.get("path", ""), "url": source_item.get("url", ""), "width": source_item.get("width") or group.get("image", {}).get("width"), "height": source_item.get("height") or group.get("image", {}).get("height"), "aspect_ratio": group.get("image", {}).get("aspect_ratio") or image_settings(project).get("aspect_ratio")}
+    prompt_group["summary"] = truncate_text(chunk.get("text") or chunk.get("tts_text") or group.get("summary"), 900)
+    prompt_group["visual_prompt"] = truncate_text(chunk.get("image_prompt") or source_item.get("positive_prompt") or group.get("visual_prompt"), 3000)
+    prompt_group["negative_prompt"] = truncate_text(chunk.get("image_negative_prompt") or source_item.get("negative_prompt") or group.get("negative_prompt"), 1500)
+    prompt_group["animation_positive_prompt"] = truncate_text(chunk.get("animation_positive_prompt") or chunk.get("grok_video_prompt") or group.get("animation_positive_prompt") or group.get("grok_video_prompt"), 3000)
+    prompt_group["animation_negative_prompt"] = truncate_text(chunk.get("animation_negative_prompt") or group.get("animation_negative_prompt"), 1500)
+    prompt_group["grok_video_prompt"] = truncate_text(chunk.get("grok_video_prompt") or chunk.get("animation_positive_prompt") or group.get("grok_video_prompt"), 3000)
+    return prompt_group, chunk, (start, duration)
+
+
+def generate_chunk_video_now(project: dict[str, Any], group_id: str, chunk_id: str, *, replace: bool = False) -> dict[str, Any]:
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    pseudo_group, chunk, (start, duration) = group_with_chunk_video_source(project, group, chunk_id)
+    settings = image_settings(project)
+    vsettings = video_i2v_settings(project)
+    output_prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", f"xtts_i2v_{safe_project_id(str(project.get('id') or active_project_id()))}_{group_id}_{chunk_id}").strip("_")
+    video_meta = run_comfyui_video_i2v_workflow(project, pseudo_group, settings, vsettings, output_prefix)
+    video_meta["status"] = "ready"
+    items = normalize_group_media_items(group.get("media_items"), group)
+    if replace:
+        items = [item for item in items if not (item.get("type") == "video" and str(item.get("chunk_id") or "") == str(chunk_id) and item.get("prompt_scope") == "chunk" and item.get("source") == "generated")]
+    media_item = normalize_group_media_item({
+        "id": f"chunk_video_{chunk_id}_{uuid.uuid4().hex[:8]}",
+        "type": "video",
+        "path": video_meta.get("path", ""),
+        "url": video_meta.get("url", ""),
+        "label": f"Видео чанка #{int(chunk.get('order') or 0) + 1}",
+        "role": "chunk",
+        "source": "generated",
+        "scheduled": True,
+        "start_offset_sec": start,
+        "duration_sec": duration,
+        "fit": "cover",
+        "chunk_id": str(chunk_id),
+        "prompt_scope": "chunk",
+        "prompt_source": str(chunk.get("prompt_source") or "fallback"),
+        "positive_prompt": pseudo_group.get("grok_video_prompt") or pseudo_group.get("animation_positive_prompt") or "",
+        "negative_prompt": pseudo_group.get("animation_negative_prompt") or "",
+        "provider": video_meta.get("provider", ""),
+        "model": video_meta.get("model", ""),
+        "created_at": time.time(),
+    }, len(items))
+    if not media_item:
+        raise RuntimeError("Generated video did not produce a media item")
+    items.append(media_item)
+    group["media_items"] = normalize_group_media_items(items, group)
+    return media_item
+
+
 def run_comfyui_svd_i2v_workflow(project: dict[str, Any], group: dict[str, Any], settings: dict[str, Any], video_settings: dict[str, Any], output_prefix: str) -> dict[str, Any]:
     image_meta = group.get("image") if isinstance(group.get("image"), dict) else {}
     source_path = resolve_user_path(image_meta.get("path")) if image_meta.get("path") else None
@@ -5341,6 +5414,38 @@ def queue_worker() -> None:
                     result_image_path=media_item.get("path", ""),
                     stage="saved",
                 )
+            elif task["kind"] == "chunk_video":
+                project = load_project(task.get("project_id"))
+                payload_data = task.get("payload") or task.get("params") or {}
+                group_id = str(payload_data.get("group_id") or "")
+                chunk_id = str(payload_data.get("chunk_id") or "")
+                replace = bool(payload_data.get("replace"))
+                group = find_video_group(project, group_id)
+                if not group:
+                    raise RuntimeError("Video group not found")
+                vsettings = video_i2v_settings(project)
+                backend_label = video_i2v_backend_label(vsettings)
+                set_status(project, f"Генерация видео чанка: {chunk_id}", True)
+                set_progress(active=True, percent=35, message=f"Готовим {backend_label} видео чанка…", current_task_id=task["id"])
+                update_task(task["id"], progress_percent=35, message=f"Готовим {backend_label} видео чанка…", stage="workflow")
+                if not vsettings.get("enabled"):
+                    raise RuntimeError(f"{backend_label} image-to-video is disabled in settings")
+                if vsettings.get("workflow_mode") == "disabled":
+                    raise RuntimeError(f"{backend_label} workflow mode is disabled")
+                set_progress(active=True, percent=60, message=f"Генерируем {backend_label} видео чанка…", current_task_id=task["id"])
+                update_task(task["id"], progress_percent=60, message=f"Генерируем {backend_label} видео чанка…", stage="generating")
+                media_item = generate_chunk_video_now(project, group_id, chunk_id, replace=replace)
+                normalize_arrangement(project)
+                save_project(project)
+                set_status(project, f"Видео чанка готово: {chunk_id}")
+                update_task(
+                    task["id"],
+                    result_kind="chunk_video",
+                    result_group_id=group_id,
+                    result_chunk_id=chunk_id,
+                    result_video_path=media_item.get("path", ""),
+                    stage="saved",
+                )
             elif task["kind"] == "video_group":
                 project = load_project(task.get("project_id"))
                 payload_data = task.get("payload") or task.get("params") or {}
@@ -5681,6 +5786,93 @@ def run_ffmpeg(cmd: list[str]) -> None:
         raise RuntimeError((proc.stderr or proc.stdout or "ffmpeg failed").strip()[:2000])
 
 
+def ass_escape(text: Any) -> str:
+    return str(text or "").replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", r"\N")
+
+
+def ass_time(seconds: float) -> str:
+    value = max(0.0, float(seconds or 0.0))
+    hours = int(value // 3600)
+    minutes = int((value % 3600) // 60)
+    secs = int(value % 60)
+    centis = int(round((value - int(value)) * 100))
+    if centis >= 100:
+        secs += 1
+        centis = 0
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
+
+def ass_color(hex_color: Any, alpha: int = 0) -> str:
+    value = re.sub(r"[^0-9A-Fa-f]", "", str(hex_color or "ffffff"))
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
+    value = value.ljust(6, "0")[:6]
+    rr, gg, bb = value[0:2], value[2:4], value[4:6]
+    return f"&H{max(0, min(255, int(alpha))):02X}{bb}{gg}{rr}"
+
+
+def ass_style_from_defaults(defaults: dict[str, Any], width: int, height: int) -> str:
+    settings = normalize_subtitle_defaults(defaults)
+    font_size = max(8, min(160, int(float(settings.get("font_size") or 42))))
+    outline = max(0, min(12, int(float(settings.get("outline") or 2))))
+    margin_v = max(24, int(height * 0.08))
+    background_alpha = int(round(255 * (1.0 - max(0.0, min(1.0, float(settings.get("background_opacity", 0.45)))))))
+    return ",".join([
+        "Style: Default",
+        str(settings.get("font_family") or "Arial"),
+        str(font_size),
+        ass_color(settings.get("color"), 0),
+        ass_color(settings.get("color"), 0),
+        ass_color(settings.get("background"), background_alpha),
+        ass_color("000000", 0),
+        "0", "0", "0", "0", "100", "100", "0", "0",
+        "3" if float(settings.get("background_opacity", 0.45)) > 0 else "1",
+        str(outline), "0", "2", str(max(16, int(width * 0.05))), str(max(16, int(width * 0.05))), str(margin_v), "1",
+    ])
+
+
+def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int, out: Path) -> bool:
+    events: list[str] = []
+    for group, group_start, group_end in group_time_ranges(project):
+        defaults = normalize_subtitle_defaults(group.get("subtitle_defaults"))
+        blocks = normalize_subtitle_blocks(group.get("subtitle_blocks"), {**group, "duration": max(0.05, group_end - group_start)})
+        for block in blocks:
+            if not block.get("enabled", True) or not str(block.get("text") or "").strip():
+                continue
+            start = group_start + float(block.get("start_offset_sec") or 0.0) - float(block.get("word_offset_sec") or defaults.get("word_offset_sec") or 0.0)
+            end = start + max(0.05, float(block.get("duration_sec") or 0.05))
+            position = str(block.get("position") or defaults.get("position") or "bottom")
+            align = 8 if position == "top" else 5 if position == "center" else 2
+            text = ass_escape(block.get("text"))
+            events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Default,,0,0,0,,{{\\an{align}}}{text}")
+    if not events:
+        return False
+    style_defaults = normalize_subtitle_defaults(next((g.get("subtitle_defaults") for g, _, _ in group_time_ranges(project) if g.get("subtitle_blocks")), None))
+    out.write_text("\n".join([
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "WrapStyle: 2",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,BackColour,OutlineColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        ass_style_from_defaults(style_defaults, width, height),
+        "",
+        "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+        *events,
+        "",
+    ]), encoding="utf-8-sig")
+    return True
+
+
+def ffmpeg_subtitles_filter_arg(path: Path) -> str:
+    value = str(path).replace("\\", "/").replace("'", r"\'").replace(":", r"\:")
+    return f"subtitles='{value}'"
+
+
 def export_dimensions(project: dict[str, Any], payload: ExportRequest) -> tuple[int, int, str]:
     orientation = str(payload.orientation or "auto").strip().lower()
     if orientation not in {"auto", "landscape", "portrait", "square"}:
@@ -5694,14 +5886,16 @@ def export_dimensions(project: dict[str, Any], payload: ExportRequest) -> tuple[
         else:
             orientation = "landscape" if img_settings.get("aspect_ratio") == "horizontal" else "portrait"
     res = str(payload.resolution or "720p").strip().lower()
+    if res in {"vertical_1080x1920", "portrait_1080x1920", "9:16_1080x1920", "1080x1920"}:
+        return 1080, 1920, "portrait"
+    if res in {"horizontal_1920x1080", "landscape_1920x1080", "16:9_1920x1080", "1920x1080"}:
+        return 1920, 1080, "landscape"
     long_edge = 1080 if "1080" in res else 720
     if orientation == "square":
         return long_edge, long_edge, orientation
     if orientation == "portrait":
-        ratio = (source_width / source_height) if source_width > 0 and source_height > 0 and source_width < source_height else 9 / 16
-        return int(round(long_edge * ratio)) // 2 * 2, long_edge, orientation
-    ratio = (source_height / source_width) if source_width > 0 and source_height > 0 and source_width >= source_height else 9 / 16
-    return long_edge, int(round(long_edge * ratio)) // 2 * 2, orientation
+        return (1080, 1920, orientation) if long_edge >= 1080 else (720, 1280, orientation)
+    return (1920, 1080, orientation) if long_edge >= 1080 else (1280, 720, orientation)
 
 
 def group_time_ranges(project: dict[str, Any]) -> list[tuple[dict[str, Any], float, float]]:
@@ -6029,13 +6223,19 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
     write_concat_file(segments, concat_file)
     visual_mp4 = work_dir / "visual.mp4"
     run_ffmpeg([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(visual_mp4)])
+    subtitle_ass = work_dir / "subtitles.ass"
+    subtitle_visual = visual_mp4
+    subtitles_burned = write_export_subtitles_ass(project, width, height, subtitle_ass)
+    if subtitles_burned:
+        subtitle_visual = work_dir / "visual_subtitled.mp4"
+        run_ffmpeg([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(visual_mp4), "-vf", ffmpeg_subtitles_filter_arg(subtitle_ass), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an", str(subtitle_visual)])
     ext = "mov" if video_format == "mov" else "webm" if video_format == "webm" else "mp4"
     out = out_dir / f"final_video_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
     if video_format == "webm":
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(visual_mp4), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
+        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(subtitle_visual), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
     else:
         crf = "28" if payload.video_quality == "small" else "18" if payload.video_quality == "high" else "23"
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(visual_mp4), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
+        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(subtitle_visual), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
     run_ffmpeg(cmd)
     try:
         shutil.rmtree(work_dir)
@@ -6052,7 +6252,8 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
         "fit": str(payload.video_fit or "cover"),
         "speed_curve_applied": speed_curve_applied,
         "speed_curve_points": len(speed_points),
-        "timeline_fidelity": "group ranges from chunk timings; group video assets are split at video speed-envelope points, speed-adjusted with ffmpeg setpts, then looped/trimmed to preserve the audio timeline",
+        "subtitles_burned": subtitles_burned,
+        "timeline_fidelity": "group ranges from chunk timings; group video assets are split at video speed-envelope points, speed-adjusted with ffmpeg setpts, subtitles are burned from group subtitle blocks when present, then muxed to preserve the audio timeline",
     })
     project["export"] = result
     project.setdefault("exports", []).append(result)
@@ -6119,8 +6320,10 @@ def route_availability_summary() -> dict[str, Any]:
         "PATCH /api/project/groups/{group_id}": ("PATCH", "/api/project/groups/{group_id}"),
         "POST /api/project/groups/{group_id}/image": ("POST", "/api/project/groups/{group_id}/image"),
         "POST /api/project/groups/{group_id}/video": ("POST", "/api/project/groups/{group_id}/video"),
+        "POST /api/project/groups/{group_id}/chunks/{chunk_id}/video": ("POST", "/api/project/groups/{group_id}/chunks/{chunk_id}/video"),
         "POST /api/project/groups/images": ("POST", "/api/project/groups/images"),
         "POST /api/project/groups/videos": ("POST", "/api/project/groups/videos"),
+        "POST /api/project/groups/chunk-videos": ("POST", "/api/project/groups/chunk-videos"),
         "GET /api/comfyui/status": ("GET", "/api/comfyui/status"),
         "GET /api/xai/imagine-video/diagnostics": ("GET", "/api/xai/imagine-video/diagnostics"),
         "GET /api/image": ("GET", "/api/image"),
@@ -6340,9 +6543,24 @@ def active_chunk_image_task(project_id: str, group_id: str, chunk_id: str) -> di
     return None
 
 
+def active_chunk_video_task(project_id: str, group_id: str, chunk_id: str) -> dict[str, Any] | None:
+    pid = safe_project_id(project_id)
+    with _queue_lock:
+        for task in _tasks:
+            payload = task.get("payload") or task.get("params") or {}
+            if task.get("kind") == "chunk_video" and task.get("project_id") == pid and payload.get("group_id") == group_id and payload.get("chunk_id") == chunk_id and task.get("status") in {"queued", "running"}:
+                return dict(task)
+    return None
+
+
 def group_has_chunk_image(group: dict[str, Any], chunk_id: str) -> bool:
     items = normalize_group_media_items(group.get("media_items"), group)
     return any(item.get("type") == "image" and item.get("prompt_scope") == "chunk" and str(item.get("chunk_id") or "") == str(chunk_id) and (item.get("path") or item.get("url")) for item in items)
+
+
+def group_has_chunk_video(group: dict[str, Any], chunk_id: str) -> bool:
+    items = normalize_group_media_items(group.get("media_items"), group)
+    return any(item.get("type") == "video" and item.get("prompt_scope") == "chunk" and str(item.get("chunk_id") or "") == str(chunk_id) and (item.get("path") or item.get("url")) for item in items)
 
 
 def enqueue_chunk_image_task(project: dict[str, Any], group_id: str, chunk_id: str, *, force: bool = False, replace: bool = False, missing_only: bool = True) -> dict[str, Any] | None:
@@ -6361,6 +6579,28 @@ def enqueue_chunk_image_task(project: dict[str, Any], group_id: str, chunk_id: s
         project_id=pid,
         payload={"group_id": group_id, "chunk_id": chunk_id, "replace": bool(replace)},
         label=f"Картинка чанка #{int(chunk.get('order') or 0) + 1}",
+        stage="queued",
+    )
+
+
+def enqueue_chunk_video_task(project: dict[str, Any], group_id: str, chunk_id: str, *, force: bool = False, replace: bool = False, missing_only: bool = True) -> dict[str, Any] | None:
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    chunk = find_chunk_in_group(project, group, chunk_id)
+    if missing_only and not force and group_has_chunk_video(group, chunk_id):
+        return None
+    if not group_has_chunk_image(group, chunk_id):
+        raise HTTPException(status_code=400, detail="Generate the chunk image before chunk video")
+    existing = active_chunk_video_task(pid, group_id, chunk_id)
+    if existing and not force:
+        return existing
+    return enqueue_task(
+        "chunk_video",
+        project_id=pid,
+        payload={"group_id": group_id, "chunk_id": chunk_id, "replace": bool(replace)},
+        label=f"Видео чанка #{int(chunk.get('order') or 0) + 1}",
         stage="queued",
     )
 
@@ -6718,6 +6958,15 @@ def generate_chunk_image_endpoint(group_id: str, chunk_id: str, payload: ChunkIm
     return {"queued_tasks": [task] if task else [], "skipped_count": 0 if task else 1, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 
+@app.post("/api/project/groups/{group_id}/chunks/{chunk_id}/video")
+def generate_chunk_video_endpoint(group_id: str, chunk_id: str, payload: ChunkVideoRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    task = enqueue_chunk_video_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+    set_status(project, f"Видео чанка поставлено в очередь: {chunk_id}", bool(task))
+    return {"queued_tasks": [task] if task else [], "skipped_count": 0 if task else 1, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
 @app.post("/api/project/groups/{group_id}/chunk-images")
 def generate_group_chunk_images_endpoint(group_id: str, payload: ChunkImagesRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
     project = load_project(project_id)
@@ -6735,6 +6984,29 @@ def generate_group_chunk_images_endpoint(group_id: str, payload: ChunkImagesRequ
             skipped += 1
     set_status(project, f"Картинки чанков группы поставлены в очередь: {len(queued)}, пропущено: {skipped}", bool(queued))
     return {"queued_tasks": queued, "skipped_count": skipped, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/{group_id}/chunk-videos")
+def generate_group_chunk_videos_endpoint(group_id: str, payload: ChunkVideosRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    queued: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for chunk_id in [str(item) for item in group.get("chunk_ids", []) if str(item)]:
+        try:
+            task = enqueue_chunk_video_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+        except HTTPException as exc:
+            skipped.append({"chunk_id": chunk_id, "reason": str(exc.detail)})
+            continue
+        if task:
+            queued.append(task)
+        else:
+            skipped.append({"chunk_id": chunk_id, "reason": "video already exists or active"})
+    set_status(project, f"Видео чанков группы поставлены в очередь: {len(queued)}, пропущено: {len(skipped)}", bool(queued))
+    return {"queued_tasks": queued, "skipped": skipped, "skipped_count": len(skipped), "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 
 @app.post("/api/project/groups/chunk-images")
@@ -6756,6 +7028,31 @@ def generate_all_chunk_images_endpoint(payload: ChunkImagesRequest, project_id: 
                 skipped += 1
     set_status(project, f"Картинки чанков всех групп поставлены в очередь: {len(queued)}, пропущено: {skipped}", bool(queued))
     return {"queued_tasks": queued, "skipped_count": skipped, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/chunk-videos")
+def generate_all_chunk_videos_endpoint(payload: ChunkVideosRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    groups = project.get("arrangement", {}).get("video", {}).get("groups", [])
+    queued: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for group in groups:
+        if not isinstance(group, dict) or not group.get("id"):
+            continue
+        group_id = str(group.get("id"))
+        for chunk_id in [str(item) for item in group.get("chunk_ids", []) if str(item)]:
+            try:
+                task = enqueue_chunk_video_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+            except HTTPException as exc:
+                skipped.append({"group_id": group_id, "chunk_id": chunk_id, "reason": str(exc.detail)})
+                continue
+            if task:
+                queued.append(task)
+            else:
+                skipped.append({"group_id": group_id, "chunk_id": chunk_id, "reason": "video already exists or active"})
+    set_status(project, f"Видео чанков всех групп поставлены в очередь: {len(queued)}, пропущено: {len(skipped)}", bool(queued))
+    return {"queued_tasks": queued, "skipped": skipped, "skipped_count": len(skipped), "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 
 @app.post("/api/project/groups/subtitles")

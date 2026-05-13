@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-grok-chunk-images";
+﻿const FRONTEND_BUILD = "2026-05-13-xtts-studio-refinements";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -9,9 +9,9 @@ const VIDEO_I2V_BACKEND_LABELS = {
 };
 const GROK_IMAGE_MODEL = "grok-imagine-image-quality";
 const IMAGE_QUALITY_PRESETS = {
-  fast: { label: "Быстро", vertical: [832, 1216], horizontal: [1216, 832], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
-  balanced: { label: "Баланс", vertical: [896, 1152], horizontal: [1152, 896], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
-  quality: { label: "Качество", vertical: [1024, 1536], horizontal: [1536, 1024], steps: 28, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+  fast: { label: "Быстро", vertical: [1080, 1920], horizontal: [1920, 1080], steps: 16, cfg: 5.5, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+  balanced: { label: "Баланс", vertical: [1080, 1920], horizontal: [1920, 1080], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
+  quality: { label: "Качество", vertical: [1080, 1920], horizontal: [1920, 1080], steps: 28, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
 };
 const IMAGE_QUALITY_ORDER = ["fast", "balanced", "quality"];
 const VIDEO_I2V_QUALITY_PRESETS = {
@@ -171,6 +171,7 @@ function taskDisplayName(task) {
   if (task?.kind === "grok_groups") return "Grok AI grouping";
   if (task?.kind === "image_group") return "Image generation / Картинка группы";
   if (task?.kind === "chunk_image") return "Картинка чанка";
+  if (task?.kind === "chunk_video") return "Видео чанка";
   if (task?.kind === "video_group") return `${videoBackendLabel()} video generation`;
   if (task?.kind === "generate_chunk") return "Generate chunk";
   if (task?.kind === "export") return "Export";
@@ -183,14 +184,17 @@ function videoBackendLabel(mode = $("videoI2vWorkflowMode")?.value || state.proj
 
 function syncBulkVideoButtonLabel() {
   const button = $("queueAllVideosBtn");
-  if (!button) return;
+  const chunkButton = $("queueAllChunkVideosBtn");
   const backend = videoBackendLabel();
   const enabled = $("videoI2vEnabled")?.checked ?? state.project?.settings?.video_i2v_enabled ?? false;
-  button.textContent = `Generate all ${backend} videos`;
-  button.title = enabled
-    ? `Queue all missing group videos using the currently selected ${backend} workflow/backend.`
-    : `Image-to-video buttons are disabled; enable the ${backend} backend in Video settings first.`;
-  button.setAttribute("aria-label", button.textContent);
+  for (const [target, label] of [[button, "видео групп"], [chunkButton, "видео чанков"]]) {
+    if (!target) continue;
+    target.textContent = `Сгенерировать все ${label} · ${backend}`;
+    target.title = enabled
+      ? `Поставить в очередь отсутствующие ${label} через текущий ${backend} backend.`
+      : `Image-to-video выключен; включите ${backend} в настройках видео.`;
+    target.setAttribute("aria-label", target.textContent);
+  }
 }
 
 function chunkNumber(chunkId) {
@@ -872,7 +876,7 @@ function renderSettings() {
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
-  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 896, image_height: 1152, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 1080, image_height: 1920, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
   const setIfNotFocused = (id, value) => {
     const el = $(id);
     if (el && document.activeElement !== el) el.value = value;
@@ -1482,7 +1486,8 @@ function groupChunkCompositionHtml(group) {
     .map((chunk) => `<li><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 18))}</span></li>`)
     .join("");
   return `
-    <section class="groupDetailSection groupChunkSection">
+    <details class="groupDetailSection groupChunkSection groupCollapsibleSection">
+      <summary>
       <div class="groupSectionHead">
         <div>
           <h4>Состав группы · чанки</h4>
@@ -1490,25 +1495,32 @@ function groupChunkCompositionHtml(group) {
         </div>
         <span class="groupSectionBadge">${chunkIds.length} шт.</span>
       </div>
+      </summary>
       ${chunkRows ? `<ol class="groupChunkSummaryList">${chunkRows}</ol>` : `<p class="groupMediaEmpty">В группе нет чанков.</p>`}
       <details class="groupChunkMembership">
         <summary>Редактировать состав чанков</summary>
         <div class="chunkPickGrid">${renderChunkMultiSelect(chunkIds)}</div>
       </details>
-    </section>
+    </details>
   `;
 }
 
 function groupPromptFieldsHtml(group, editableFields) {
   return `
-    <section class="groupDetailSection groupPromptEditor">
+    <details class="groupDetailSection groupPromptEditor groupCollapsibleSection" open>
+      <summary>
       <div class="groupSectionHead">
         <div>
           <h4>Промты группы</h4>
           <p>Режим «группа»: единые подсказки для картинки, видео и настроения сцены.</p>
         </div>
-        <button type="button" class="generateGroupPromptBtn secondary">Сгенерировать промт группы</button>
+        <div class="row wrap">
+          <button type="button" class="generateGroupPromptBtn secondary">Сгенерировать промт группы</button>
+          <button type="button" class="generateGroupImageBtn">Сгенерировать картинку группы</button>
+          <button type="button" class="generateGroupVideoBtn">Сгенерировать видео группы</button>
+        </div>
       </div>
+      </summary>
       <div class="groupPromptGrid">
         ${editableFields.map(([key, label, type]) => {
           const id = groupPromptInputId(group.id, key);
@@ -1519,7 +1531,7 @@ function groupPromptFieldsHtml(group, editableFields) {
         }).join("")}
       </div>
       ${group.source ? `<p class="groupPromptSource">Источник: ${escapeHtml(group.source)}</p>` : ""}
-    </section>
+    </details>
   `;
 }
 
@@ -1536,7 +1548,8 @@ function groupChunkPromptEditorHtml(group) {
   const chunkIds = new Set(Array.isArray(group.chunk_ids) ? group.chunk_ids.map(String) : []);
   const chunks = getChunks().filter((chunk) => chunkIds.has(String(chunk.id)));
   return `
-    <section class="groupDetailSection groupChunkPromptEditor">
+    <details class="groupDetailSection groupChunkPromptEditor groupCollapsibleSection">
+      <summary>
       <div class="groupSectionHead">
         <div>
           <h4>Промты по чанкам</h4>
@@ -1545,13 +1558,15 @@ function groupChunkPromptEditorHtml(group) {
         <div class="row wrap">
           <button type="button" class="secondary generateChunkPromptsBtn">Сгенерировать промты чанков</button>
           <button type="button" class="secondary generateGroupChunkImagesBtn">Сгенерировать картинки по чанкам группы</button>
+          <button type="button" class="secondary generateGroupChunkVideosBtn">Сгенерировать видео по чанкам группы</button>
           <button type="button" class="secondary saveChunkPromptsBtn">Сохранить промты чанков</button>
         </div>
       </div>
+      </summary>
       <div class="groupChunkPromptRows">
         ${chunks.map((chunk) => `
           <div class="groupChunkPromptRow" data-chunk-prompt-id="${escapeHtml(chunk.id)}">
-            <div class="groupChunkPromptRowHead"><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 28))}</span><small>${escapeHtml(chunk.prompt_source || "ручное/не задано")}${chunk.prompt_updated_at ? ` · ${escapeHtml(new Date(Number(chunk.prompt_updated_at) * 1000).toLocaleString())}` : ""}</small><button type="button" class="secondary generateChunkImageBtn" data-chunk-id="${escapeHtml(chunk.id)}">Сгенерировать картинку</button></div>
+            <div class="groupChunkPromptRowHead"><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 28))}</span><small>${escapeHtml(chunk.prompt_source || "ручное/не задано")}${chunk.prompt_updated_at ? ` · ${escapeHtml(new Date(Number(chunk.prompt_updated_at) * 1000).toLocaleString())}` : ""}</small><button type="button" class="secondary generateChunkImageBtn" data-chunk-id="${escapeHtml(chunk.id)}">Сгенерировать картинку</button><button type="button" class="secondary generateChunkVideoBtn" data-chunk-id="${escapeHtml(chunk.id)}">Сгенерировать видео</button></div>
             <div class="groupChunkPromptGrid">
               ${CHUNK_PROMPT_FIELDS.map(([key, label, type]) => type === "textarea"
                 ? `<label>${escapeHtml(label)}<textarea data-chunk-prompt-field="${escapeHtml(key)}">${escapeHtml(chunk[key] || "")}</textarea></label>`
@@ -1559,7 +1574,7 @@ function groupChunkPromptEditorHtml(group) {
             </div>
           </div>`).join("") || `<p class="groupMediaEmpty">В группе нет чанков для промтов.</p>`}
       </div>
-    </section>
+    </details>
   `;
 }
 
@@ -1589,7 +1604,8 @@ function groupSubtitleSectionHtml(group) {
   const subtitle = window.XTTSStudio?.GroupSubtitleTimeline;
   const defaults = subtitle?.defaults?.(group.subtitle_defaults) || group.subtitle_defaults || {};
   return `
-    <section class="groupDetailSection groupSubtitleEditor">
+    <details class="groupDetailSection groupSubtitleEditor groupCollapsibleSection">
+      <summary>
       <div class="groupSectionHead">
         <div>
           <h4>Субтитры группы</h4>
@@ -1600,6 +1616,7 @@ function groupSubtitleSectionHtml(group) {
           <button type="button" class="secondary addGroupSubtitleChunksBtn">Добавить по чанкам</button>
         </div>
       </div>
+      </summary>
       <div class="grid two imageSettingsGrid groupSubtitleDefaults">
         <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
         <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label>
@@ -1612,7 +1629,7 @@ function groupSubtitleSectionHtml(group) {
         <label>Сдвиг слов, сек <input type="number" min="-5" max="5" step="0.05" data-subtitle-default="word_offset_sec" value="${Number(defaults.word_offset_sec ?? 0).toFixed(2)}" /><small class="subtitleOpacityHint">− позже диктора, 0 по таймингу, + раньше диктора</small></label>
       </div>
       <div class="groupSubtitleBlocks"></div>
-    </section>
+    </details>
   `;
 }
 
@@ -2944,13 +2961,7 @@ function renderGroupDetail(group, { force = false } = {}) {
   const videoExists = Boolean(video.url || video.path || video.status === "ready" || video.status === "done");
   const videoBusy = Boolean(activeVideoGroupTask(group.id));
   const i2vEnabled = Boolean(state.project?.settings?.video_i2v_enabled);
-  const imagePreviewHtml = image.url
-    ? `<img class="groupImageThumb" src="${escapeHtml(image.url)}" alt="${escapeHtml(group.title)} image preview" />`
-    : `<div class="groupImageThumb missing">No image preview</div>`;
   const backendLabel = videoBackendLabel();
-  const videoPreviewHtml = video.url
-    ? `<video class="groupImageThumb" src="${escapeHtml(video.url)}" controls muted loop playsinline></video>`
-    : `<div class="groupImageThumb missing">${video.error ? `${escapeHtml(backendLabel)} failed: ${escapeHtml(video.error)}` : `No ${escapeHtml(backendLabel)} video yet`}</div>`;
   const promptHtml = (image.positive_prompt || image.negative_prompt) ? `
     <details class="groupImagePrompts">
       <summary>Prompt used</summary>
@@ -2987,45 +2998,28 @@ function renderGroupDetail(group, { force = false } = {}) {
     ${groupChunkPromptEditorHtml(group)}
     ${groupMediaSectionHtml(group, mediaItemsHtml)}
     ${groupSubtitleSectionHtml(group)}
-    <section class="groupImagePanel image-${escapeHtml(imageStatus)}">
-      <div class="groupImageHead">
-        <div>
-          <h4>Картинка группы</h4>
-          <p>${imageBusy ? "Картинка в очереди/генерируется" : escapeHtml(groupImageMetaText(group))}</p>
-          ${image.error ? `<p class="groupImageError">${escapeHtml(image.error)}</p>` : ""}
-        </div>
-        <div class="row wrap">
-          <button type="button" class="generateGroupImageBtn" ${imageBusy ? "disabled" : ""}>${imageExists ? "Перегенерировать" : "Сгенерировать картинку"}</button>
-          <button type="button" class="generateGroupVideoBtn" ${videoBusy || !imageExists || !i2vEnabled ? "disabled" : ""}>${videoExists ? `Перегенерировать ${escapeHtml(backendLabel)}-видео` : `Сгенерировать ${escapeHtml(backendLabel)}-видео`}</button>
-        </div>
-      </div>
-      <div class="groupImageBody">
-        ${imagePreviewHtml}
-        ${videoPreviewHtml}
-        <dl class="groupImageMeta">
-          <div><dt>Status</dt><dd>${escapeHtml(imageStatus)}</dd></div>
-          <div><dt>Provider</dt><dd>${escapeHtml(image.provider || "—")}</dd></div>
-          <div><dt>Model</dt><dd>${escapeHtml(image.model || "—")}</dd></div>
-          <div><dt>Aspect</dt><dd>${escapeHtml(image.aspect_ratio || "—")}</dd></div>
-          <div><dt>Size</dt><dd>${escapeHtml(image.width && image.height ? `${image.width}×${image.height}` : "—")}</dd></div>
-          <div><dt>Seed</dt><dd>${escapeHtml(image.seed ?? "—")}</dd></div>
-          <div><dt>Video</dt><dd>${escapeHtml(groupVideoMetaText(group))}</dd></div>
-        </dl>
-        ${video.error ? `<p class="groupImageError">${escapeHtml(video.error)}</p>` : ""}
-      </div>
-      ${promptHtml}
-    </section>
+    ${promptHtml}
   `;
   const savePromptsButton = card.querySelector(".saveGroupPromptsBtn");
   const generateImageButton = card.querySelector(".generateGroupImageBtn");
   const generateVideoButton = card.querySelector(".generateGroupVideoBtn");
+  if (generateImageButton) {
+    generateImageButton.disabled = imageBusy;
+    generateImageButton.textContent = imageExists ? "Перегенерировать картинку группы" : "Сгенерировать картинку группы";
+  }
+  if (generateVideoButton) {
+    generateVideoButton.disabled = videoBusy || !imageExists || !i2vEnabled;
+    generateVideoButton.textContent = videoExists ? `Перегенерировать ${backendLabel}-видео группы` : `Сгенерировать ${backendLabel}-видео группы`;
+  }
   card.querySelector(".moveGroupUpBtn")?.addEventListener("click", () => moveGroup(group.id, "up"));
   card.querySelector(".moveGroupDownBtn")?.addEventListener("click", () => moveGroup(group.id, "down"));
   card.querySelector(".deleteGroupBtn")?.addEventListener("click", () => deleteGroup(group.id));
   card.querySelector(".generateGroupPromptBtn")?.addEventListener("click", () => generateSelectedGroupPrompt(group.id));
   card.querySelector(".generateChunkPromptsBtn")?.addEventListener("click", () => generateChunkPrompts(group.id));
   card.querySelector(".generateGroupChunkImagesBtn")?.addEventListener("click", () => enqueueGroupChunkImages(group.id));
+  card.querySelector(".generateGroupChunkVideosBtn")?.addEventListener("click", () => enqueueGroupChunkVideos(group.id));
   card.querySelectorAll(".generateChunkImageBtn").forEach((button) => button.addEventListener("click", () => enqueueChunkImage(group.id, button.dataset.chunkId || "")));
+  card.querySelectorAll(".generateChunkVideoBtn").forEach((button) => button.addEventListener("click", () => enqueueChunkVideo(group.id, button.dataset.chunkId || "")));
   card.querySelector(".saveChunkPromptsBtn")?.addEventListener("click", () => saveChunkPrompts(group.id, card));
   card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
   card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
@@ -3306,6 +3300,42 @@ async function enqueueGroupChunkImages(groupId) {
   } catch (err) { setStatus(`Не удалось поставить картинки чанков группы в очередь: ${err.message}`); }
 }
 
+async function enqueueChunkVideo(groupId, chunkId) {
+  if (!groupId || !chunkId) return;
+  try {
+    await saveSettings();
+    setStatus("Ставим видео чанка в очередь…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunks/${encodeURIComponent(chunkId)}/video${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: false, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus("Видео чанка поставлено в очередь", true);
+  } catch (err) { setStatus(`Не удалось поставить видео чанка в очередь: ${err.message}`); }
+}
+
+async function enqueueGroupChunkVideos(groupId) {
+  if (!groupId) return;
+  try {
+    await saveSettings();
+    setStatus("Ставим видео чанков группы в очередь…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-videos${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: true, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`Видео чанков группы поставлены в очередь: ${(data.queued_tasks || []).length}, пропущено: ${data.skipped_count || 0}`, true);
+  } catch (err) { setStatus(`Не удалось поставить видео чанков группы в очередь: ${err.message}`); }
+}
+
 async function enqueueAllChunkImages() {
   try {
     await saveSettings();
@@ -3322,6 +3352,24 @@ async function enqueueAllChunkImages() {
     render();
     setStatus(`Картинки чанков всех групп поставлены в очередь: ${(data.queued_tasks || []).length}, пропущено: ${data.skipped_count || 0}`, true);
   } catch (err) { setStatus(`Не удалось поставить картинки чанков всех групп в очередь: ${err.message}`); }
+}
+
+async function enqueueAllChunkVideos() {
+  try {
+    await saveSettings();
+    const missingOnly = $("imageMissingOnly")?.checked !== false;
+    setStatus("Ставим видео чанков всех групп в очередь…", true);
+    const data = await api(`/api/project/groups/chunk-videos${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`Видео чанков всех групп поставлены в очередь: ${(data.queued_tasks || []).length}, пропущено: ${data.skipped_count || 0}`, true);
+  } catch (err) { setStatus(`Не удалось поставить видео чанков всех групп в очередь: ${err.message}`); }
 }
 
 function addGroupMediaItem(groupId) {
@@ -3441,11 +3489,13 @@ function syncImageTaskUi() {
   const allButton = $("queueAllImagesBtn");
   const allChunkButton = $("queueAllChunkImagesBtn");
   const allVideosButton = $("queueAllVideosBtn");
+  const allChunkVideosButton = $("queueAllChunkVideosBtn");
   const activeAny = Boolean(activeImageGroupTask() || activeChunkImageTask() || activeVideoGroupTask());
   syncBulkVideoButtonLabel();
   if (allButton) allButton.disabled = activeAny;
   if (allChunkButton) allChunkButton.disabled = activeAny;
   if (allVideosButton) allVideosButton.disabled = activeAny || !state.project?.settings?.video_i2v_enabled;
+  if (allChunkVideosButton) allChunkVideosButton.disabled = activeAny || !state.project?.settings?.video_i2v_enabled;
   if (state.screenMode === "group") renderGroupDetail(selectedGroup());
   return activeAny;
 }
@@ -3718,7 +3768,7 @@ function exportPayloadFromUi() {
     channels: Number($("exportChannels")?.value || 1),
     video_format: $("exportVideoFormat")?.value || "mp4",
     orientation: $("exportOrientation")?.value || "auto",
-    resolution: $("exportResolution")?.value || "720p",
+    resolution: $("exportResolution")?.value || "vertical_1080x1920",
     fps: Number($("exportFps")?.value || 30),
     video_quality: $("exportVideoQuality")?.value || "medium",
     video_fit: $("exportVideoFit")?.value || "cover",
@@ -3730,6 +3780,12 @@ function exportPayloadFromUi() {
 
 function syncExportSettingsUi() {
   const isVideo = ($("exportType")?.value || "audio") === "video";
+  const resolution = $("exportResolution")?.value || "";
+  const orientation = $("exportOrientation");
+  if (orientation && document.activeElement !== orientation) {
+    if (resolution === "vertical_1080x1920") orientation.value = "portrait";
+    if (resolution === "horizontal_1920x1080") orientation.value = "landscape";
+  }
   for (const id of ["exportVideoFormat", "exportOrientation", "exportResolution", "exportFps", "exportVideoFit", "exportVideoQuality"]) {
     const el = $(id);
     if (!el) continue;
@@ -4472,26 +4528,8 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-$("musicUpload").onchange = async () => {
-  const files = [...($("musicUpload").files || [])];
-  if (!files.length) return;
-  try {
-    setStatus(`Uploading ${files.length} audio source(s)…`, true);
-    for (const file of files) {
-      const form = new FormData();
-      form.append("file", file);
-      const data = await api(`/api/upload/music${activeProjectQuery()}`, { method: "POST", body: form });
-      state.project = data.project;
-    }
-    state.musicClip.selectedId = musicArrangement().tracks.at(-1)?.id || state.musicClip.selectedId;
-    render();
-    setStatus(`Uploaded ${files.length} audio source(s)`);
-  } catch (err) {
-    setStatus(`Music upload failed: ${err.message}`);
-  } finally {
-    $("musicUpload").value = "";
-  }
-};
+const legacyMusicUpload = $("musicUpload");
+if (legacyMusicUpload) legacyMusicUpload.onchange = () => uploadMusicFiles(legacyMusicUpload.files, legacyMusicUpload);
 
 async function uploadMusicFiles(files, uploadInput = null) {
   const items = [...(files || [])];
@@ -4519,13 +4557,8 @@ async function uploadMusicFiles(files, uploadInput = null) {
 const musicLibraryUpload = $("musicLibraryUpload");
 if (musicLibraryUpload) musicLibraryUpload.onchange = () => uploadMusicFiles(musicLibraryUpload.files, musicLibraryUpload);
 
-function addMusicPathSource() {
-  const input = $("musicPath");
-  addMusicPathSourceFromValue(input?.value || "", { addClip: true });
-}
-
 const addMusicSourceBtn = $("addMusicSourceBtn");
-if (addMusicSourceBtn) addMusicSourceBtn.onclick = addMusicPathSource;
+if (addMusicSourceBtn) addMusicSourceBtn.onclick = () => addMusicPathSourceFromValue($("musicPath")?.value || "", { addClip: true });
 const musicLibraryAddPathBtn = $("musicLibraryAddPathBtn");
 if (musicLibraryAddPathBtn) musicLibraryAddPathBtn.onclick = () => {
   addMusicPathSourceFromValue($("musicLibraryPath")?.value || "", { addClip: false });
@@ -4643,6 +4676,8 @@ const queueAllChunkImagesBtn = $("queueAllChunkImagesBtn");
 if (queueAllChunkImagesBtn) queueAllChunkImagesBtn.onclick = () => enqueueAllChunkImages();
 const queueAllVideosBtn = $("queueAllVideosBtn");
 if (queueAllVideosBtn) queueAllVideosBtn.onclick = () => enqueueAllGroupVideos();
+const queueAllChunkVideosBtn = $("queueAllChunkVideosBtn");
+if (queueAllChunkVideosBtn) queueAllChunkVideosBtn.onclick = () => enqueueAllChunkVideos();
 const splitGroupsBtn = $("splitGroupsBtn");
 if (splitGroupsBtn) splitGroupsBtn.onclick = splitGroupsNormal;
 const addAllSubtitlesBtn = $("addAllSubtitlesBtn");

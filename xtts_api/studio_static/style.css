@@ -187,9 +187,10 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupAiFields dt { color: #ffe66f; font-weight: 900; }
 .groupAiFields dd { margin: 0; color: #dce6f7; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .groupDetailSection { display: grid; gap: .7rem; padding: .8rem; border: 1px solid #293147; border-radius: 12px; background: #0f131d; }
-.groupCollapsibleSection > summary { cursor: pointer; list-style-position: inside; }
-.groupCollapsibleSection > summary.groupSectionHead, .groupCollapsibleSection > summary.groupImageHead { display: flex; }
+.groupCollapsibleSection > summary { cursor: pointer; list-style-position: inside; color: #86ffd7; font-weight: 900; }
+.groupCollapsibleSection > summary .groupSectionHead, .groupCollapsibleSection > summary.groupSectionHead, .groupCollapsibleSection > summary.groupImageHead { display: flex; margin-top: .35rem; }
 .groupCollapsibleSection > summary h4 { display: inline; }
+.groupCollapsibleSection:not([open]) { gap: 0; }
 .groupSectionHead { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .groupSectionHead h4 { margin: 0 0 .2rem; color: #86ffd7; }
 .groupSectionHead p { margin: 0; max-width: 44rem; }

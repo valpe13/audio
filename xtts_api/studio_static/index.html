@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XTTS Studio</title>
-    <link rel="stylesheet" href="/studio/style.css?v=2026-05-13-staged-preview-chunk-prompts" />
+    <link rel="stylesheet" href="/studio/style.css?v=2026-05-13-xtts-studio-refinements" />
   </head>
   <body>
     <header>
@@ -121,12 +121,6 @@
                   <button id="splitGroupsBtn" type="button" class="secondary">Разделить на группы</button>
                   <button id="generateAiGroupsBtn" type="button" class="aiGroupBtn">Разделить на группы AI</button>
                   <button id="addManualGroupBtn" type="button" class="secondary">Добавить группу</button>
-                  <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки в очередь</button>
-                  <button id="queueAllChunkImagesBtn" type="button" class="imageGroupBtn">Сгенерировать картинки по чанкам всех групп</button>
-                  <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео в очередь</button>
-                  <button id="addAllSubtitlesBtn" type="button" class="secondary">Субтитры во все группы</button>
-                  <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие</label>
-                  <label class="inlineCheck imageMissingOnly"><input id="subtitlesMissingOnly" type="checkbox" checked /> Только где пусто</label>
                 </div>
                 <p id="groupAiStatus" class="groupAiStatus">Ключ можно задать в настройках проекта или через XAI_API_KEY.</p>
               </details>
@@ -158,14 +152,6 @@
 
             <details class="settingsSection settingsGroup musicSettingsGroup">
               <summary>Музыка · библиотека / микс</summary>
-              <label>Путь к музыке
-                <input id="musicPath" type="text" placeholder="WAV/FLAC/MP3 или URL" />
-              </label>
-              <div class="row wrap">
-                <label>Загрузить музыку <input id="musicUpload" type="file" accept="audio/*" multiple /></label>
-                <button id="addMusicSourceBtn" type="button" class="secondary">Добавить источник/клип из пути</button>
-                <button id="musicLoopChainBtn" type="button" class="secondary">Зациклить цепочку до конца</button>
-              </div>
               <label>Добавить путь / URL
                 <input id="musicLibraryPath" type="text" placeholder="xtts_api/studio_projects/uploads/music.mp3" />
               </label>
@@ -173,6 +159,7 @@
                 <button id="musicLibraryAddPathBtn" type="button" class="secondary">Добавить источник</button>
                 <button id="musicLibraryAddAtCursorBtn" type="button">Добавить выбранное в курсор</button>
                 <button id="musicLibraryAppendBtn" type="button" class="secondary">Добавить выбранное в конец</button>
+                <button id="musicLoopChainBtn" type="button" class="secondary">Зациклить цепочку до конца</button>
               </div>
               <label>Импорт музыкальных файлов <input id="musicLibraryUpload" type="file" accept="audio/*" multiple /></label>
               <div id="musicLibraryList" class="musicLibraryList">Источников музыки нет.</div>
@@ -251,8 +238,8 @@
                       <option value="disabled">disabled</option>
                     </select>
                   </label>
-                  <label>Ширина картинки / подсказка Grok <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1024" /></label>
-                  <label>Высота картинки / подсказка Grok <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1792" /></label>
+                  <label>Ширина картинки / подсказка Grok <input id="imageWidth" type="number" min="64" max="4096" step="8" value="1080" /></label>
+                  <label>Высота картинки / подсказка Grok <input id="imageHeight" type="number" min="64" max="4096" step="8" value="1920" /></label>
                 </div>
                 <p id="imageFluxWorkflowNote" class="imageFluxWorkflowNote" hidden>FLUX generated workflow is not supported yet. Use template mode until the next implementation stage.</p>
               </details>
@@ -419,7 +406,20 @@
         </details>
 
         <details class="panel collapsiblePanel">
-          <summary><h2>5. Экспорт</h2></summary>
+          <summary><h2>5. Массовые действия</h2></summary>
+          <div class="row wrap settingsActions">
+            <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки групп в очередь</button>
+            <button id="queueAllChunkImagesBtn" type="button" class="imageGroupBtn">Сгенерировать картинки по чанкам всех групп</button>
+            <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео групп в очередь</button>
+            <button id="queueAllChunkVideosBtn" type="button" class="videoGroupBtn">Сгенерировать видео по чанкам всех групп</button>
+            <button id="addAllSubtitlesBtn" type="button" class="secondary">Субтитры во все группы</button>
+            <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие медиа</label>
+            <label class="inlineCheck imageMissingOnly"><input id="subtitlesMissingOnly" type="checkbox" checked /> Только где пусто</label>
+          </div>
+        </details>
+
+        <details class="panel collapsiblePanel">
+          <summary><h2>6. Экспорт</h2></summary>
           <div class="row wrap exportActions"><button id="exportBtn" type="button">Поставить экспорт в очередь</button></div>
           <div class="exportSettings grid two">
             <label>Export type
@@ -468,6 +468,8 @@
             </label>
             <label>Resolution
               <select id="exportResolution">
+                <option value="vertical_1080x1920">Вертикально 9:16 · 1080x1920</option>
+                <option value="horizontal_1920x1080">Горизонтально 16:9 · 1920x1080</option>
                 <option value="720p">720p</option>
                 <option value="1080p">1080p</option>
               </select>
@@ -599,11 +601,11 @@
       <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
-    <script src="/studio/settings_helpers.js?v=2026-05-13-staged-preview-chunk-prompts"></script>
-    <script src="/studio/group_media_utils.js?v=2026-05-13-staged-preview-chunk-prompts"></script>
-    <script src="/studio/group_media_timeline.js?v=2026-05-13-staged-preview-chunk-prompts"></script>
-    <script src="/studio/group_subtitle_timeline.js?v=2026-05-13-staged-preview-chunk-prompts"></script>
-    <script src="/studio/app.js?v=2026-05-13-staged-preview-chunk-prompts"></script>
+    <script src="/studio/settings_helpers.js?v=2026-05-13-xtts-studio-refinements"></script>
+    <script src="/studio/group_media_utils.js?v=2026-05-13-xtts-studio-refinements"></script>
+    <script src="/studio/group_media_timeline.js?v=2026-05-13-xtts-studio-refinements"></script>
+    <script src="/studio/group_subtitle_timeline.js?v=2026-05-13-xtts-studio-refinements"></script>
+    <script src="/studio/app.js?v=2026-05-13-xtts-studio-refinements"></script>
   </body>
 </html>
 
