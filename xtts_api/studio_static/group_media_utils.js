@@ -34,6 +34,22 @@ window.XTTSStudio = window.XTTSStudio || {};
     return Number(item?.start_offset_sec || 0) + Math.max(0, Number(item?.duration_sec || item?.visual_duration_sec || 0));
   }
 
+  function itemDuration(item, groupDuration) {
+    const explicit = Number(item?.duration_sec || 0);
+    if (explicit > 0) return explicit;
+    return Math.max(0.25, Number(groupDuration || 0) - Number(item?.start_offset_sec || 0));
+  }
+
+  function activeItemAt(items, timeSec, groupDuration) {
+    const duration = Math.max(0.25, Number(groupDuration || 0));
+    const time = clamp(timeSec, 0, duration);
+    return scheduledItems(items).find((item) => {
+      const start = clamp(item.start_offset_sec, 0, duration);
+      const end = Math.min(duration, start + itemDuration(item, duration));
+      return time >= start && time < end;
+    }) || null;
+  }
+
   function freeIntervals(items, duration) {
     const end = Math.max(0, Number(duration) || 0);
     const spans = scheduledItems(items)
@@ -88,5 +104,5 @@ window.XTTSStudio = window.XTTSStudio || {};
       .sort((a, b) => a.local_start_sec - b.local_start_sec || a.order - b.order);
   }
 
-  namespace.GroupMediaUtils = { mediaKey, isScheduledBlock, scheduledItems, assetItems, freeIntervals, bestFreeInterval, groupChunkTimelineItems };
+  namespace.GroupMediaUtils = { mediaKey, isScheduledBlock, scheduledItems, assetItems, itemDuration, itemEnd, activeItemAt, freeIntervals, bestFreeInterval, groupChunkTimelineItems };
 })(window.XTTSStudio);

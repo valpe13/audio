@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-group-preview-progressive-subtitles";
+﻿const FRONTEND_BUILD = "2026-05-13-main-preview-timeline-snapping";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -2409,61 +2409,75 @@ function renderCentralScreen() {
 function renderPreviewScreen() {
   const frame = $("previewFrame");
   if (!frame) return;
-  const group = selectedPreviewGroup();
+  const activeGroup = videoGroupAtTime(state.timeline.cursorSec) || selectedPreviewGroup();
+  const group = activeGroup;
+  const localTime = group ? clamp(state.timeline.cursorSec - Number(group.start || 0), 0, Math.max(0.25, Number(group.duration || 0))) : 0;
+  const mediaItems = normalizeGroupMediaItems(group || {});
+  const item = window.XTTSStudio?.GroupMediaUtils?.activeItemAt?.(mediaItems, localTime, group?.duration)
+    || (group?.video?.url ? { id: "legacy_video", type: "video", url: group.video.url, path: group.video.path || "", start_offset_sec: 0, duration_sec: Math.max(0.25, Number(group.duration || 0)), fit: "contain", label: group.title || "Видео группы" } : null)
+    || (group?.image?.url ? { id: "legacy_image", type: "image", url: group.image.url, path: group.image.path || "", start_offset_sec: 0, duration_sec: Math.max(0.25, Number(group.duration || 0)), fit: "contain", label: group.title || "Картинка группы" } : null);
   const image = group?.image || {};
   const video = group?.video || {};
-  const hasVideo = Boolean(video.url);
-  const hasImage = Boolean(image.url);
+  const url = item ? groupMediaUrl(item) : "";
+  const hasVideo = Boolean(item?.type === "video" && url);
+  const hasImage = Boolean(item?.type !== "video" && url);
   const aspect = video.aspect_ratio || image.aspect_ratio || state.project?.settings?.image_aspect_ratio || "vertical";
   const isHorizontal = aspect === "horizontal";
   frame.classList.toggle("horizontal", isHorizontal);
   frame.classList.toggle("hasImage", hasImage && !hasVideo);
   frame.classList.toggle("hasVideo", hasVideo);
+  const targetFrame = targetFrameDimensions();
+  frame.style.setProperty("--target-frame-aspect", `${targetFrame.width} / ${targetFrame.height}`);
   const aspectLabel = $("previewAspectLabel");
   if (aspectLabel) aspectLabel.textContent = isHorizontal ? "16:9" : "9:16";
+  const mediaFrame = $("previewMediaFrame");
+  const textOverlay = $("previewTextOverlay");
+  const subtitles = window.XTTSStudio?.GroupSubtitleTimeline?.progressiveBlocks?.(group?.subtitle_blocks || [], localTime, group?.duration || 1, group?.subtitle_defaults || {}) || [];
+  const subtitleOverlay = groupSubtitleOverlayHtml(subtitles);
   const previewVideo = $("previewVideo");
-  if (previewVideo) {
-    previewVideo.loop = true;
-    previewVideo.muted = true;
-    previewVideo.playsInline = true;
-    applyPreviewVideoPlaybackRate();
-    if (hasVideo) {
-      const currentSrc = previewVideo.getAttribute("src") || "";
-      if (currentSrc !== video.url) {
-        previewVideo.src = video.url;
-        previewVideo.load();
-      }
-      previewVideo.hidden = false;
-      if (state.sequence.active) {
-        const playPromise = previewVideo.play();
-        if (playPromise?.catch) playPromise.catch(() => {});
-      } else {
-        previewVideo.pause();
-      }
+  const fit = ["cover", "contain", "fill"].includes(item?.fit) ? item.fit : "contain";
+  if (mediaFrame) {
+    mediaFrame.classList.toggle("horizontal", isHorizontal);
+    mediaFrame.style.removeProperty("background-image");
+    const key = item && url ? `${item.type}:${item.id || ""}:${url}:${fit}:${subtitleOverlay}` : `empty:${group?.id || "none"}:${subtitleOverlay}`;
+    if (mediaFrame.dataset.previewKey !== key) {
+      mediaFrame.innerHTML = item && url
+        ? `${item.type === "video" ? `<video id="previewVideo" class="previewVideo" src="${escapeHtml(url)}" muted loop playsinline style="object-fit:${escapeHtml(fit)}"></video>` : `<img class="previewVideo" src="${escapeHtml(url)}" alt="" style="object-fit:${escapeHtml(fit)}" />`}${subtitleOverlay}`
+        : subtitleOverlay;
+      mediaFrame.dataset.previewKey = key;
     } else {
-      if (!previewVideo.hidden || previewVideo.getAttribute("src")) {
-        previewVideo.pause();
-        previewVideo.removeAttribute("src");
-        previewVideo.load();
-      }
-      previewVideo.hidden = true;
+      const overlaySlot = mediaFrame.querySelector(".groupMediaPreviewSubtitles");
+      if (overlaySlot) overlaySlot.outerHTML = subtitleOverlay;
+      else if (subtitleOverlay) mediaFrame.insertAdjacentHTML("beforeend", subtitleOverlay);
     }
   }
+  const activePreviewVideo = $("previewVideo");
+  if (activePreviewVideo?.tagName === "VIDEO") {
+    activePreviewVideo.loop = true;
+    activePreviewVideo.muted = true;
+    activePreviewVideo.playsInline = true;
+    activePreviewVideo.playbackRate = clamp(videoSpeedAt(state.timeline.cursorSec), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+    const offset = loopedVideoOffset(item, localTime, activePreviewVideo);
+    try { if (Math.abs((activePreviewVideo.currentTime || 0) - offset) > 0.2) activePreviewVideo.currentTime = offset; } catch (_) { /* best-effort preview seek */ }
+    if (state.sequence.active) activePreviewVideo.play?.().catch?.(() => {});
+    else activePreviewVideo.pause?.();
+  }
+  if (textOverlay) textOverlay.hidden = Boolean(item && url);
   if (hasVideo) {
     frame.style.removeProperty("background-image");
-    $("previewTitle").textContent = group?.title || "Group video";
-    $("previewDescription").textContent = `Preview: Loop video · speed ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · ${groupVideoMetaText(group)}`;
-    $("previewImageHint").textContent = video.path ? `Video: ${video.path}` : "Selected group video preview.";
+    $("previewTitle").textContent = group?.title || "Видео группы";
+    $("previewDescription").textContent = `Таймлайн группы · видео · ${formatTime(localTime)} · скорость ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}×`;
+    $("previewImageHint").textContent = `${group?.title || "Группа"} · ${formatTime(state.timeline.cursorSec)} → локально ${formatTime(localTime)} · видео/субтитры из таймлайна группы.`;
   } else if (hasImage) {
-    frame.style.backgroundImage = `linear-gradient(180deg, rgba(8,11,17,.08), rgba(8,11,17,.38)), url("${image.url.replace(/"/g, "%22")}")`;
-    $("previewTitle").textContent = group?.title || "Group image";
-    $("previewDescription").textContent = `Preview: image · ${groupImageMetaText(group)}`;
-    $("previewImageHint").textContent = image.path ? `Image: ${image.path}` : "Selected group image preview.";
+    frame.style.removeProperty("background-image");
+    $("previewTitle").textContent = group?.title || "Картинка группы";
+    $("previewDescription").textContent = `Таймлайн группы · картинка · ${formatTime(localTime)}`;
+    $("previewImageHint").textContent = `${group?.title || "Группа"} · ${formatTime(state.timeline.cursorSec)} → локально ${formatTime(localTime)} · картинка/субтитры из таймлайна группы.`;
   } else {
     frame.style.removeProperty("background-image");
     $("previewTitle").textContent = group ? `${group.title}: image ${groupImageStatus(group)}` : "Video preview placeholder";
-    $("previewDescription").textContent = group ? (group.summary || "Картинка для группы ещё не сгенерирована.") : "Здесь появится вертикальный видеоряд, синхронизированный со смысловыми группами чанков.";
-    $("previewImageHint").textContent = group ? "Для выбранной группы пока нет картинки — используйте генерацию в экране группы." : "Выберите группу с готовой картинкой, чтобы увидеть preview frame.";
+    $("previewDescription").textContent = group ? (group.summary || "На текущей позиции нет активного медиа группы.") : "Здесь появится вертикальный видеоряд, синхронизированный со смысловыми группами чанков.";
+    $("previewImageHint").textContent = group ? "На текущей позиции группы нет активного фото/видео. Добавьте блок на таймлайн группы или сгенерируйте медиа." : "Выберите группу с готовой картинкой, чтобы увидеть preview frame.";
   }
 }
 
@@ -2643,6 +2657,24 @@ function groupMediaUrl(item) {
   if (/^https?:\/\//i.test(raw) || String(raw).startsWith("/api/")) return raw;
   if (!raw) return "";
   return item.type === "video" ? `/api/video?path=${encodeURIComponent(raw)}` : `/api/image?path=${encodeURIComponent(raw)}`;
+}
+
+function loopedVideoOffset(item, timeSec, videoEl = null) {
+  const start = Number(item?.start_offset_sec || 0);
+  const local = Math.max(0, Number(timeSec || 0) - start);
+  const sourceDuration = Number(videoEl?.duration || item?.source_duration_sec || item?.video_duration_sec || 0);
+  const visibleDuration = Number(item?.duration_sec || item?.visual_duration_sec || 0);
+  const duration = sourceDuration > 0 ? sourceDuration : visibleDuration > 0 ? visibleDuration : 0;
+  return duration > 0 ? local % duration : local;
+}
+
+function targetFrameDimensions() {
+  const aspect = state.project?.settings?.image_aspect_ratio || "vertical";
+  const width = Number(state.project?.settings?.image_width || (aspect === "horizontal" ? 1152 : 896));
+  const height = Number(state.project?.settings?.image_height || (aspect === "horizontal" ? 896 : 1152));
+  const safeWidth = Math.max(1, width || 896);
+  const safeHeight = Math.max(1, height || 1152);
+  return { width: safeWidth, height: safeHeight, orientation: safeWidth >= safeHeight ? "horizontal" : "vertical" };
 }
 
 function hexToRgba(hex, opacity = 1) {

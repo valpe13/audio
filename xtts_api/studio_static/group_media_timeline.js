@@ -117,7 +117,7 @@ window.XTTSStudio = window.XTTSStudio || {};
       </div>
       <div class="groupMediaTimelineRuler">${rulerTicks.join("")}</div>
       <input type="range" class="groupMediaPlayheadSlider" min="0" max="${duration.toFixed(3)}" step="0.05" value="0" aria-label="Позиция предпросмотра медиа группы" />
-      <div class="groupMediaTimelineLane" tabindex="0"><i class="groupMediaPlayhead" style="left:0%"></i>${blocks || `<div class="groupMediaTimelineEmpty">На таймлайне пока нет медиа-блоков. Перетащите миниатюру сюда; исходник не будет дублироваться.</div>`}</div>
+      <div class="groupMediaTimelineLane" tabindex="0"><i class="groupMediaPlayhead" style="left:0%"></i><i class="groupMediaSnapMarker" hidden><span>идеальный стык</span></i>${blocks || `<div class="groupMediaTimelineEmpty">На таймлайне пока нет медиа-блоков. Перетащите миниатюру сюда; исходник не будет дублироваться.</div>`}</div>
       <div class="groupChunkTimelineLane" aria-label="Дорожка чанков группы">
         ${chunks.map((chunk) => {
           const start = clamp(chunkStart(chunk), 0, duration);
