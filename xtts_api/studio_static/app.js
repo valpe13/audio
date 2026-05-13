@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-main-preview-timeline-snapping";
+﻿const FRONTEND_BUILD = "2026-05-13-staged-preview-chunk-prompts";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -1186,7 +1186,10 @@ function syncPreviewGroupToPlayhead({ forceRender = false } = {}) {
   if (!state.preview.followPlayhead) return;
   const group = videoGroupAtTime(state.timeline.cursorSec);
   const nextGroupId = group?.id || "";
-  if (state.preview.groupId === nextGroupId && !forceRender) return;
+  if (state.preview.groupId === nextGroupId && !forceRender) {
+    if (state.screenMode === "preview") renderPreviewScreen();
+    return;
+  }
   state.preview.groupId = nextGroupId;
   if (nextGroupId) {
     setActiveGroupNav(nextGroupId);
@@ -1487,7 +1490,7 @@ function groupPromptFieldsHtml(group, editableFields) {
       <div class="groupSectionHead">
         <div>
           <h4>Промты группы</h4>
-          <p>Текстовые подсказки для картинки, видео и настроения сцены.</p>
+          <p>Режим «группа»: единые подсказки для картинки, видео и настроения сцены.</p>
         </div>
         <button type="button" class="generateGroupPromptBtn secondary">Сгенерировать промт группы</button>
       </div>
@@ -1501,6 +1504,45 @@ function groupPromptFieldsHtml(group, editableFields) {
         }).join("")}
       </div>
       ${group.source ? `<p class="groupPromptSource">Источник: ${escapeHtml(group.source)}</p>` : ""}
+    </section>
+  `;
+}
+
+const CHUNK_PROMPT_FIELDS = [
+  ["image_prompt", "Промт картинки", "textarea"],
+  ["image_negative_prompt", "Негатив картинки", "textarea"],
+  ["animation_positive_prompt", "Позитив анимации", "textarea"],
+  ["animation_negative_prompt", "Негатив анимации", "textarea"],
+  ["grok_video_prompt", "Промт Grok-видео", "textarea"],
+  ["prompt_context_note", "Контекст/стыковка", "textarea"],
+];
+
+function groupChunkPromptEditorHtml(group) {
+  const chunkIds = new Set(Array.isArray(group.chunk_ids) ? group.chunk_ids.map(String) : []);
+  const chunks = getChunks().filter((chunk) => chunkIds.has(String(chunk.id)));
+  return `
+    <section class="groupDetailSection groupChunkPromptEditor">
+      <div class="groupSectionHead">
+        <div>
+          <h4>Промты по чанкам</h4>
+          <p>Режим «чанки»: отдельные редактируемые подсказки для каждого чанка с учётом общего контекста группы и соседних чанков.</p>
+        </div>
+        <div class="row wrap">
+          <button type="button" class="secondary generateChunkPromptsBtn">Сгенерировать промты чанков</button>
+          <button type="button" class="secondary saveChunkPromptsBtn">Сохранить промты чанков</button>
+        </div>
+      </div>
+      <div class="groupChunkPromptRows">
+        ${chunks.map((chunk) => `
+          <div class="groupChunkPromptRow" data-chunk-prompt-id="${escapeHtml(chunk.id)}">
+            <div class="groupChunkPromptRowHead"><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 28))}</span><small>${escapeHtml(chunk.prompt_source || "ручное/не задано")}${chunk.prompt_updated_at ? ` · ${escapeHtml(new Date(Number(chunk.prompt_updated_at) * 1000).toLocaleString())}` : ""}</small></div>
+            <div class="groupChunkPromptGrid">
+              ${CHUNK_PROMPT_FIELDS.map(([key, label, type]) => type === "textarea"
+                ? `<label>${escapeHtml(label)}<textarea data-chunk-prompt-field="${escapeHtml(key)}">${escapeHtml(chunk[key] || "")}</textarea></label>`
+                : `<label>${escapeHtml(label)}<input type="text" data-chunk-prompt-field="${escapeHtml(key)}" value="${escapeHtml(chunk[key] || "")}" /></label>`).join("")}
+            </div>
+          </div>`).join("") || `<p class="groupMediaEmpty">В группе нет чанков для промтов.</p>`}
+      </div>
     </section>
   `;
 }
@@ -2439,16 +2481,15 @@ function renderPreviewScreen() {
   if (mediaFrame) {
     mediaFrame.classList.toggle("horizontal", isHorizontal);
     mediaFrame.style.removeProperty("background-image");
-    const key = item && url ? `${item.type}:${item.id || ""}:${url}:${fit}:${subtitleOverlay}` : `empty:${group?.id || "none"}:${subtitleOverlay}`;
+    const key = item && url ? `${item.type}:${item.id || ""}:${url}:${fit}` : `empty:${group?.id || "none"}`;
     if (mediaFrame.dataset.previewKey !== key) {
       mediaFrame.innerHTML = item && url
-        ? `${item.type === "video" ? `<video id="previewVideo" class="previewVideo" src="${escapeHtml(url)}" muted loop playsinline style="object-fit:${escapeHtml(fit)}"></video>` : `<img class="previewVideo" src="${escapeHtml(url)}" alt="" style="object-fit:${escapeHtml(fit)}" />`}${subtitleOverlay}`
-        : subtitleOverlay;
+        ? `${item.type === "video" ? `<video id="previewVideo" class="previewVideo" src="${escapeHtml(url)}" muted loop playsinline style="object-fit:${escapeHtml(fit)}"></video>` : `<img class="previewVideo" src="${escapeHtml(url)}" alt="" style="object-fit:${escapeHtml(fit)}" />`}<div class="groupMediaPreviewOverlaySlot">${subtitleOverlay}</div>`
+        : `<div class="groupMediaPreviewOverlaySlot">${subtitleOverlay}</div>`;
       mediaFrame.dataset.previewKey = key;
     } else {
-      const overlaySlot = mediaFrame.querySelector(".groupMediaPreviewSubtitles");
-      if (overlaySlot) overlaySlot.outerHTML = subtitleOverlay;
-      else if (subtitleOverlay) mediaFrame.insertAdjacentHTML("beforeend", subtitleOverlay);
+      const overlaySlot = mediaFrame.querySelector(".groupMediaPreviewOverlaySlot");
+      if (overlaySlot) overlaySlot.innerHTML = subtitleOverlay;
     }
   }
   const activePreviewVideo = $("previewVideo");
@@ -2462,7 +2503,7 @@ function renderPreviewScreen() {
     if (state.sequence.active) activePreviewVideo.play?.().catch?.(() => {});
     else activePreviewVideo.pause?.();
   }
-  if (textOverlay) textOverlay.hidden = Boolean(item && url);
+  if (textOverlay) textOverlay.hidden = false;
   if (hasVideo) {
     frame.style.removeProperty("background-image");
     $("previewTitle").textContent = group?.title || "Видео группы";
@@ -2927,6 +2968,7 @@ function renderGroupDetail(group, { force = false } = {}) {
     </dl>
     ${groupChunkCompositionHtml(group)}
     ${groupPromptFieldsHtml(group, editableFields)}
+    ${groupChunkPromptEditorHtml(group)}
     ${groupMediaSectionHtml(group, mediaItemsHtml)}
     ${groupSubtitleSectionHtml(group)}
     <section class="groupImagePanel image-${escapeHtml(imageStatus)}">
@@ -2965,6 +3007,8 @@ function renderGroupDetail(group, { force = false } = {}) {
   card.querySelector(".moveGroupDownBtn")?.addEventListener("click", () => moveGroup(group.id, "down"));
   card.querySelector(".deleteGroupBtn")?.addEventListener("click", () => deleteGroup(group.id));
   card.querySelector(".generateGroupPromptBtn")?.addEventListener("click", () => generateSelectedGroupPrompt(group.id));
+  card.querySelector(".generateChunkPromptsBtn")?.addEventListener("click", () => generateChunkPrompts(group.id));
+  card.querySelector(".saveChunkPromptsBtn")?.addEventListener("click", () => saveChunkPrompts(group.id, card));
   card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
   card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
     event.preventDefault();
@@ -3175,6 +3219,39 @@ async function saveGroupPrompts(groupId, card) {
   }
 }
 
+function chunkPromptPayloadFromCard(card) {
+  return [...card.querySelectorAll(".groupChunkPromptRow")].map((row) => {
+    const item = { id: row.dataset.chunkPromptId };
+    row.querySelectorAll("[data-chunk-prompt-field]").forEach((field) => { item[field.dataset.chunkPromptField] = field.value || ""; });
+    return item;
+  });
+}
+
+async function saveChunkPrompts(groupId, card) {
+  if (!groupId || !card) return;
+  try {
+    setStatus("Сохраняем промты чанков…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-prompts${activeProjectQuery()}`, {
+      method: "PATCH",
+      body: JSON.stringify({ chunks: chunkPromptPayloadFromCard(card) }),
+    });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus("Промты чанков сохранены");
+  } catch (err) { setStatus(`Не удалось сохранить промты чанков: ${err.message}`); }
+}
+
+async function generateChunkPrompts(groupId) {
+  if (!groupId) return;
+  try {
+    setStatus("Генерируем промты чанков…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-prompts${activeProjectQuery()}`, { method: "POST", body: "{}" });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus("Промты чанков сгенерированы");
+  } catch (err) { setStatus(`Генерация промтов чанков не удалась: ${err.message}`); }
+}
+
 function addGroupMediaItem(groupId) {
   const card = document.querySelector(`.groupDetailCard`);
   addGroupMediaRow(card, { type: "image", label: "Manual media", scheduled: false }, selectedGroup()?.duration || 1);
@@ -3207,6 +3284,19 @@ async function generateSelectedGroupPrompt(groupId) {
     render();
     setStatus("Selected group prompt generated");
   } catch (err) { setStatus(`Group prompt generation failed: ${err.message}`); }
+}
+
+async function addSubtitlesToAllGroups() {
+  try {
+    setStatus("Добавляем субтитры во все группы…", true);
+    const data = await api(`/api/project/groups/subtitles${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: Boolean($("subtitlesMissingOnly")?.checked), mode: "chunks" }),
+    });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus(`Субтитры добавлены: ${data.updated_count || 0} групп`);
+  } catch (err) { setStatus(`Не удалось добавить субтитры: ${err.message}`); }
 }
 
 async function moveGroup(groupId, direction) {
@@ -4479,6 +4569,8 @@ const queueAllVideosBtn = $("queueAllVideosBtn");
 if (queueAllVideosBtn) queueAllVideosBtn.onclick = () => enqueueAllGroupVideos();
 const splitGroupsBtn = $("splitGroupsBtn");
 if (splitGroupsBtn) splitGroupsBtn.onclick = splitGroupsNormal;
+const addAllSubtitlesBtn = $("addAllSubtitlesBtn");
+if (addAllSubtitlesBtn) addAllSubtitlesBtn.onclick = () => addSubtitlesToAllGroups();
 $("chunksSideTab").onclick = () => setSidePanelMode("chunks");
 $("groupsSideTab").onclick = () => setSidePanelMode("groups");
 $("refreshQueueBtn").onclick = refreshQueue;

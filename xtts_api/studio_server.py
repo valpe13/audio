@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-main-preview-timeline-snapping"
+STUDIO_BUILD = "2026-05-13-staged-preview-chunk-prompts"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -415,6 +415,13 @@ class ChunkUpdate(BaseModel):
     tts_text: str | None = None
     pause_after: float | None = Field(default=None, ge=0.0, le=30.0)
     order: int | None = None
+    image_prompt: str | None = None
+    image_negative_prompt: str | None = None
+    animation_positive_prompt: str | None = None
+    animation_negative_prompt: str | None = None
+    grok_video_prompt: str | None = None
+    prompt_context_note: str | None = None
+    prompt_source: str | None = None
 
 
 class ChunkCreate(BaseModel):
@@ -643,6 +650,26 @@ class GroupVideosRequest(BaseModel):
 
 class GroupVideoRequest(BaseModel):
     force: bool = False
+
+
+class ChunkPromptItem(BaseModel):
+    id: str
+    image_prompt: str | None = None
+    image_negative_prompt: str | None = None
+    animation_positive_prompt: str | None = None
+    animation_negative_prompt: str | None = None
+    grok_video_prompt: str | None = None
+    prompt_context_note: str | None = None
+    prompt_source: str | None = None
+
+
+class ChunkPromptsUpdate(BaseModel):
+    chunks: list[ChunkPromptItem] = Field(default_factory=list)
+
+
+class BulkSubtitlesRequest(BaseModel):
+    missing_only: bool = True
+    mode: str = "chunks"
 
 
 class ExportRequest(BaseModel):
@@ -2131,6 +2158,79 @@ def sanitize_split_chunk_for_response(chunk: dict[str, Any]) -> None:
         chunk["versions"] = []
     if chunk.get("generated_at") is not None:
         chunk["generated_at"] = str(chunk.get("generated_at") or "")
+
+
+CHUNK_PROMPT_LIMITS = {
+    "image_prompt": 1400,
+    "image_negative_prompt": 1500,
+    "animation_positive_prompt": 900,
+    "animation_negative_prompt": 700,
+    "grok_video_prompt": 1800,
+    "prompt_context_note": 700,
+    "prompt_source": 80,
+}
+
+
+def normalize_chunk_prompt_fields(chunk: dict[str, Any], patch: dict[str, Any], *, source: str = "manual") -> None:
+    for key, limit in CHUNK_PROMPT_LIMITS.items():
+        if key in patch and patch.get(key) is not None:
+            chunk[key] = truncate_text(patch.get(key), limit)
+    if source:
+        chunk["prompt_source"] = truncate_text(source, CHUNK_PROMPT_LIMITS["prompt_source"])
+    chunk["prompt_updated_at"] = time.time()
+
+
+def generate_fallback_chunk_prompts(project: dict[str, Any], group: dict[str, Any]) -> list[dict[str, Any]]:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    group_ids = [str(chunk_id) for chunk_id in group.get("chunk_ids", []) if str(chunk_id) in chunks_by_id]
+    context = truncate_text(group.get("visual_prompt") or group.get("summary") or group.get("title"), 500)
+    out: list[dict[str, Any]] = []
+    for index, chunk_id in enumerate(group_ids):
+        chunk = chunks_by_id[chunk_id]
+        text = truncate_text(chunk.get("text") or chunk.get("tts_text"), 260)
+        prev_text = truncate_text(chunks_by_id[group_ids[index - 1]].get("text"), 120) if index > 0 else ""
+        next_text = truncate_text(chunks_by_id[group_ids[index + 1]].get("text"), 120) if index + 1 < len(group_ids) else ""
+        visual = truncate_text(
+            f"A coherent close-up or continuation shot within the same scene as the group prompt: {context}. Chunk narration focus: {text}. Keep the same era, location, lighting, lens, color palette, materials, characters and atmosphere as adjacent chunks; do not create a hard scene cut.",
+            1400,
+        )
+        note = truncate_text(f"Группа: {group.get('title') or group.get('summary')}. Предыдущий чанк: {prev_text}. Следующий чанк: {next_text}.", 700)
+        out.append({
+            "id": chunk_id,
+            "image_prompt": visual,
+            "image_negative_prompt": group.get("negative_prompt") or DEFAULT_VIDEO_GROUP_NEGATIVE,
+            "animation_positive_prompt": build_animation_positive_prompt(text, visual),
+            "animation_negative_prompt": group.get("animation_negative_prompt") or DEFAULT_ANIMATION_NEGATIVE_PROMPT,
+            "grok_video_prompt": format_grok_imagine_video_prompt({"visual_prompt": visual, "summary": text, "animation_positive_prompt": group.get("animation_positive_prompt")}),
+            "prompt_context_note": note,
+        })
+    return out
+
+
+def apply_chunk_prompt_items(project: dict[str, Any], items: list[dict[str, Any]], *, source: str = "manual") -> int:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in project.get("chunks", []) if isinstance(chunk, dict)}
+    updated = 0
+    for item in items:
+        chunk = chunks_by_id.get(str(item.get("id") or ""))
+        if not chunk:
+            continue
+        normalize_chunk_prompt_fields(chunk, item, source=source)
+        updated += 1
+    return updated
+
+
+def group_subtitle_blocks_from_chunks(project: dict[str, Any], group: dict[str, Any]) -> list[dict[str, Any]]:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    cursor = 0.0
+    blocks: list[dict[str, Any]] = []
+    for idx, chunk_id in enumerate(group.get("chunk_ids", [])):
+        chunk = chunks_by_id.get(str(chunk_id))
+        if not chunk:
+            continue
+        duration = max(0.05, float(chunk.get("duration_sec") or 0.5))
+        blocks.append({"id": f"subtitle_{idx + 1:03d}", "enabled": True, "text": str(chunk.get("text") or chunk.get("tts_text") or ""), "start_offset_sec": round(cursor, 3), "duration_sec": round(duration, 3), "order": idx})
+        cursor += duration + max(0.0, float(chunk.get("pause_after") or 0.0))
+    return normalize_subtitle_blocks(blocks, group)
 
 
 def call_xai_stress_batch_with_retry(chunks: list[dict[str, Any]], api_key: str, *, model: str = "", attempts: int | None = None) -> dict[str, str]:
@@ -6303,6 +6403,54 @@ def generate_group_prompt_endpoint(group_id: str, project_id: str | None = Query
     return {"group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
 
 
+@app.patch("/api/project/groups/{group_id}/chunk-prompts")
+def update_chunk_prompts_endpoint(group_id: str, payload: ChunkPromptsUpdate, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    allowed = {str(chunk_id) for chunk_id in group.get("chunk_ids", [])}
+    items = [item.dict(exclude_unset=True) for item in payload.chunks if str(item.id) in allowed]
+    updated = apply_chunk_prompt_items(project, items, source="manual")
+    normalize_arrangement(project)
+    set_status(project, f"Chunk prompts saved for {updated} chunk(s)")
+    return {"updated_count": updated, "group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/{group_id}/chunk-prompts")
+def generate_chunk_prompts_endpoint(group_id: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    items = generate_fallback_chunk_prompts(project, group)
+    updated = apply_chunk_prompt_items(project, items, source="group-context-fallback")
+    normalize_arrangement(project)
+    set_status(project, f"Generated chunk prompts for {updated} chunk(s)")
+    return {"updated_count": updated, "group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/subtitles")
+def add_subtitles_to_groups_endpoint(payload: BulkSubtitlesRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    groups = project.setdefault("arrangement", {}).setdefault("video", {}).setdefault("groups", [])
+    updated = 0
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        if payload.missing_only and group.get("subtitle_blocks"):
+            continue
+        group["subtitle_defaults"] = normalize_subtitle_defaults(group.get("subtitle_defaults"))
+        group["subtitle_blocks"] = group_subtitle_blocks_from_chunks(project, group)
+        updated += 1
+    normalize_arrangement(project)
+    set_status(project, f"Added subtitles to {updated} group(s)")
+    return {"updated_count": updated, "project": enrich_project(load_project(pid))}
+
+
 @app.post("/api/project/groups")
 def create_group_endpoint(payload: GroupCreate, project_id: str | None = Query(default=None)) -> dict[str, Any]:
     project = load_project(project_id)
@@ -6635,6 +6783,9 @@ def update_chunk(chunk_id: str, payload: ChunkUpdate, project_id: str | None = Q
         chunk["duration_sec"] = 0.0
     if payload.pause_after is not None:
         chunk["pause_after"] = payload.pause_after
+    prompt_patch = payload.dict(exclude_unset=True)
+    if any(key in prompt_patch for key in CHUNK_PROMPT_LIMITS):
+        normalize_chunk_prompt_fields(chunk, prompt_patch, source=prompt_patch.get("prompt_source") or "manual")
     normalize_chunk_pauses(project, chunk)
     if payload.order is not None:
         chunk["order"] = payload.order
