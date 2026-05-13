@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-staged-preview-chunk-prompts";
+﻿const FRONTEND_BUILD = "2026-05-13-grok-chunk-images";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -170,6 +170,7 @@ function renderProgress() {
 function taskDisplayName(task) {
   if (task?.kind === "grok_groups") return "Grok AI grouping";
   if (task?.kind === "image_group") return "Image generation / Картинка группы";
+  if (task?.kind === "chunk_image") return "Картинка чанка";
   if (task?.kind === "video_group") return `${videoBackendLabel()} video generation`;
   if (task?.kind === "generate_chunk") return "Generate chunk";
   if (task?.kind === "export") return "Export";
@@ -1087,6 +1088,20 @@ function activeImageGroupTask(groupId = "") {
 }
 
 
+function activeChunkImageTask(groupId = "") {
+  const projectId = state.project?.id || state.activeProjectId || "";
+  const queues = [state.queue || [], state.project?.queue || []];
+  for (const tasks of queues) {
+    const task = (tasks || []).find((item) => item?.kind === "chunk_image"
+      && (!projectId || item.project_id === projectId)
+      && (!groupId || item.payload?.group_id === groupId || item.params?.group_id === groupId || item.result_group_id === groupId)
+      && ["queued", "running"].includes(item.status));
+    if (task) return task;
+  }
+  return null;
+}
+
+
 function activeVideoGroupTask(groupId = "") {
   const projectId = state.project?.id || state.activeProjectId || "";
   const queues = [state.queue || [], state.project?.queue || []];
@@ -1529,13 +1544,14 @@ function groupChunkPromptEditorHtml(group) {
         </div>
         <div class="row wrap">
           <button type="button" class="secondary generateChunkPromptsBtn">Сгенерировать промты чанков</button>
+          <button type="button" class="secondary generateGroupChunkImagesBtn">Сгенерировать картинки по чанкам группы</button>
           <button type="button" class="secondary saveChunkPromptsBtn">Сохранить промты чанков</button>
         </div>
       </div>
       <div class="groupChunkPromptRows">
         ${chunks.map((chunk) => `
           <div class="groupChunkPromptRow" data-chunk-prompt-id="${escapeHtml(chunk.id)}">
-            <div class="groupChunkPromptRowHead"><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 28))}</span><small>${escapeHtml(chunk.prompt_source || "ручное/не задано")}${chunk.prompt_updated_at ? ` · ${escapeHtml(new Date(Number(chunk.prompt_updated_at) * 1000).toLocaleString())}` : ""}</small></div>
+            <div class="groupChunkPromptRowHead"><strong>#${chunk.order + 1}</strong><span>${escapeHtml(chunkSummaryText(chunk.text || chunk.tts_text || "", 28))}</span><small>${escapeHtml(chunk.prompt_source || "ручное/не задано")}${chunk.prompt_updated_at ? ` · ${escapeHtml(new Date(Number(chunk.prompt_updated_at) * 1000).toLocaleString())}` : ""}</small><button type="button" class="secondary generateChunkImageBtn" data-chunk-id="${escapeHtml(chunk.id)}">Сгенерировать картинку</button></div>
             <div class="groupChunkPromptGrid">
               ${CHUNK_PROMPT_FIELDS.map(([key, label, type]) => type === "textarea"
                 ? `<label>${escapeHtml(label)}<textarea data-chunk-prompt-field="${escapeHtml(key)}">${escapeHtml(chunk[key] || "")}</textarea></label>`
@@ -3008,6 +3024,8 @@ function renderGroupDetail(group, { force = false } = {}) {
   card.querySelector(".deleteGroupBtn")?.addEventListener("click", () => deleteGroup(group.id));
   card.querySelector(".generateGroupPromptBtn")?.addEventListener("click", () => generateSelectedGroupPrompt(group.id));
   card.querySelector(".generateChunkPromptsBtn")?.addEventListener("click", () => generateChunkPrompts(group.id));
+  card.querySelector(".generateGroupChunkImagesBtn")?.addEventListener("click", () => enqueueGroupChunkImages(group.id));
+  card.querySelectorAll(".generateChunkImageBtn").forEach((button) => button.addEventListener("click", () => enqueueChunkImage(group.id, button.dataset.chunkId || "")));
   card.querySelector(".saveChunkPromptsBtn")?.addEventListener("click", () => saveChunkPrompts(group.id, card));
   card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
   card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
@@ -3248,8 +3266,62 @@ async function generateChunkPrompts(groupId) {
     const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-prompts${activeProjectQuery()}`, { method: "POST", body: "{}" });
     if (data.project) state.project = data.project;
     render();
-    setStatus("Промты чанков сгенерированы");
+    setStatus(`Промты чанков сгенерированы (${data.source || "fallback"})`);
   } catch (err) { setStatus(`Генерация промтов чанков не удалась: ${err.message}`); }
+}
+
+async function enqueueChunkImage(groupId, chunkId) {
+  if (!groupId || !chunkId) return;
+  try {
+    await saveSettings();
+    setStatus("Ставим картинку чанка в очередь…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunks/${encodeURIComponent(chunkId)}/image${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: false, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus("Картинка чанка поставлена в очередь", true);
+  } catch (err) { setStatus(`Не удалось поставить картинку чанка в очередь: ${err.message}`); }
+}
+
+async function enqueueGroupChunkImages(groupId) {
+  if (!groupId) return;
+  try {
+    await saveSettings();
+    setStatus("Ставим картинки чанков группы в очередь…", true);
+    const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-images${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: true, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`Картинки чанков группы поставлены в очередь: ${(data.queued_tasks || []).length}, пропущено: ${data.skipped_count || 0}`, true);
+  } catch (err) { setStatus(`Не удалось поставить картинки чанков группы в очередь: ${err.message}`); }
+}
+
+async function enqueueAllChunkImages() {
+  try {
+    await saveSettings();
+    const missingOnly = $("imageMissingOnly")?.checked !== false;
+    setStatus("Ставим картинки чанков всех групп в очередь…", true);
+    const data = await api(`/api/project/groups/chunk-images${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly, force: false, replace: false }),
+    });
+    if (data.project) state.project = data.project;
+    state.queue = data.queue || state.queue;
+    state.progress = data.progress || state.progress;
+    rememberTaskStatuses(state.queue);
+    render();
+    setStatus(`Картинки чанков всех групп поставлены в очередь: ${(data.queued_tasks || []).length}, пропущено: ${data.skipped_count || 0}`, true);
+  } catch (err) { setStatus(`Не удалось поставить картинки чанков всех групп в очередь: ${err.message}`); }
 }
 
 function addGroupMediaItem(groupId) {
@@ -3367,10 +3439,12 @@ function syncGroupAiTaskUi() {
 
 function syncImageTaskUi() {
   const allButton = $("queueAllImagesBtn");
+  const allChunkButton = $("queueAllChunkImagesBtn");
   const allVideosButton = $("queueAllVideosBtn");
-  const activeAny = Boolean(activeImageGroupTask() || activeVideoGroupTask());
+  const activeAny = Boolean(activeImageGroupTask() || activeChunkImageTask() || activeVideoGroupTask());
   syncBulkVideoButtonLabel();
   if (allButton) allButton.disabled = activeAny;
+  if (allChunkButton) allChunkButton.disabled = activeAny;
   if (allVideosButton) allVideosButton.disabled = activeAny || !state.project?.settings?.video_i2v_enabled;
   if (state.screenMode === "group") renderGroupDetail(selectedGroup());
   return activeAny;
@@ -4565,6 +4639,8 @@ const addManualGroupBtn = $("addManualGroupBtn");
 if (addManualGroupBtn) addManualGroupBtn.onclick = addManualGroup;
 const queueAllImagesBtn = $("queueAllImagesBtn");
 if (queueAllImagesBtn) queueAllImagesBtn.onclick = () => enqueueAllGroupImages();
+const queueAllChunkImagesBtn = $("queueAllChunkImagesBtn");
+if (queueAllChunkImagesBtn) queueAllChunkImagesBtn.onclick = () => enqueueAllChunkImages();
 const queueAllVideosBtn = $("queueAllVideosBtn");
 if (queueAllVideosBtn) queueAllVideosBtn.onclick = () => enqueueAllGroupVideos();
 const splitGroupsBtn = $("splitGroupsBtn");

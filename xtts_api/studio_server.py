@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-staged-preview-chunk-prompts"
+STUDIO_BUILD = "2026-05-13-grok-chunk-images"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -638,9 +638,21 @@ class GroupImageRequest(BaseModel):
     force: bool = False
 
 
+class ChunkImageRequest(BaseModel):
+    force: bool = False
+    replace: bool = False
+    missing_only: bool = True
+
+
 class GroupImagesRequest(BaseModel):
     missing_only: bool = True
     force: bool = False
+
+
+class ChunkImagesRequest(BaseModel):
+    missing_only: bool = True
+    force: bool = False
+    replace: bool = False
 
 
 class GroupVideosRequest(BaseModel):
@@ -1246,6 +1258,11 @@ def normalize_group_media_item(raw_item: Any, idx: int = 0) -> dict[str, Any] | 
             item["volume"] = 1.0
     if raw_item.get("source") is not None:
         item["source"] = truncate_text(raw_item.get("source"), 80)
+    for key, limit in (("chunk_id", 80), ("prompt_scope", 80), ("prompt_source", 120), ("provider", 80), ("model", 120), ("positive_prompt", 3000), ("negative_prompt", 1500)):
+        if raw_item.get(key) is not None:
+            item[key] = truncate_text(raw_item.get(key), limit)
+    if raw_item.get("created_at") is not None:
+        item["created_at"] = raw_item.get("created_at")
     return item
 
 
@@ -1411,6 +1428,30 @@ def auto_place_generated_group_media(project: dict[str, Any], group_id: str, med
         elif item.get("type") == media_type:
             item["scheduled"] = False
     group["media_items"] = items
+
+
+def chunk_timeline_span(project: dict[str, Any], group: dict[str, Any], chunk_id: str) -> tuple[float, float]:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    cursor = 0.0
+    for current_id in group.get("chunk_ids", []):
+        chunk = chunks_by_id.get(str(current_id))
+        if not chunk:
+            continue
+        duration = max(0.05, float(chunk.get("duration_sec") or 0.5))
+        pause = max(0.0, float(chunk.get("pause_after") or 0.0))
+        if str(current_id) == str(chunk_id):
+            return round(cursor, 3), round(duration + pause, 3)
+        cursor += duration + pause
+    raise RuntimeError("Chunk is not part of the selected group")
+
+
+def find_chunk_in_group(project: dict[str, Any], group: dict[str, Any], chunk_id: str) -> dict[str, Any]:
+    if str(chunk_id) not in {str(item) for item in group.get("chunk_ids", [])}:
+        raise HTTPException(status_code=404, detail="Chunk is not part of video group")
+    chunk = next((item for item in project.get("chunks", []) if isinstance(item, dict) and str(item.get("id") or "") == str(chunk_id)), None)
+    if not chunk:
+        raise HTTPException(status_code=404, detail="Chunk not found")
+    return chunk
 
 
 def compact_ai_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2205,6 +2246,116 @@ def generate_fallback_chunk_prompts(project: dict[str, Any], group: dict[str, An
             "prompt_context_note": note,
         })
     return out
+
+
+def group_chunks_for_prompts(project: dict[str, Any], group: dict[str, Any]) -> list[dict[str, Any]]:
+    chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
+    return [chunks_by_id[str(chunk_id)] for chunk_id in group.get("chunk_ids", []) if str(chunk_id) in chunks_by_id]
+
+
+def normalize_xai_chunk_prompt_items(raw_items: Any, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if isinstance(raw_items, dict):
+        raw_items = raw_items.get("chunks") or raw_items.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("AI response field chunks must be a list")
+    valid_ids = {str(chunk.get("id") or "") for chunk in chunks if str(chunk.get("id") or "")}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        chunk_id = str(raw.get("id") or raw.get("chunk_id") or "")
+        if chunk_id not in valid_ids or chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        item = {"id": chunk_id}
+        for key, limit in CHUNK_PROMPT_LIMITS.items():
+            if key == "prompt_source":
+                continue
+            if raw.get(key) is not None:
+                item[key] = truncate_text(raw.get(key), limit)
+        out.append(item)
+    missing = [str(chunk.get("id") or "") for chunk in chunks if str(chunk.get("id") or "") not in seen]
+    if missing:
+        raise ValueError(f"AI chunk prompts missing ids: {', '.join(missing[:20])}{'…' if len(missing) > 20 else ''}")
+    return out
+
+
+def call_xai_chunk_prompts(project: dict[str, Any], group: dict[str, Any], api_key: str) -> list[dict[str, Any]]:
+    chunks = group_chunks_for_prompts(project, group)
+    if not chunks:
+        return []
+    base_url = (os.environ.get("XAI_BASE_URL") or "https://api.x.ai/v1").rstrip("/")
+    model = resolve_xai_text_model(project, str(project.get("settings", {}).get("ai_chunk_prompt_model") or ""))
+    compact_chunks = [{"id": str(chunk.get("id") or ""), "order": idx, "text": truncate_text(chunk.get("text") or chunk.get("tts_text"), 900)} for idx, chunk in enumerate(chunks)]
+    payload = {
+        "task": "Create per-chunk visual prompts for XTTS Studio within one existing video group.",
+        "group_context": {
+            "id": str(group.get("id") or ""),
+            "title": truncate_text(group.get("title"), 160),
+            "summary": truncate_text(group.get("summary"), 700),
+            "shared_visual_prompt": truncate_text(group.get("visual_prompt"), 1400),
+            "shared_negative_prompt": truncate_text(group.get("negative_prompt"), 900),
+            "shared_animation_prompt": truncate_text(group.get("animation_positive_prompt"), 900),
+            "mood": truncate_text(group.get("mood"), 120),
+            "scene_type": truncate_text(group.get("scene_type"), 120),
+        },
+        "output_schema": {"chunks": [{"id": "same chunk id", "image_prompt": "English positive image prompt", "image_negative_prompt": "English comma-separated negative prompt", "animation_positive_prompt": "English loop animation prompt", "animation_negative_prompt": "English comma-separated animation negative prompt", "grok_video_prompt": "English Grok Imagine Video loop prompt", "prompt_context_note": "Russian note about continuity with adjacent chunks"}]},
+        "rules": [
+            "Return strictly valid JSON object only with key chunks.",
+            "Return exactly one item for every provided chunk id; keep chunk order and do not invent ids.",
+            "Use one consistent shared visual style, era, location, lighting, lens, color palette, materials, and atmosphere across all chunks in this group.",
+            "Each image_prompt must be a render-ready English prompt for one still image corresponding to that chunk, 45-110 words, concrete and coherent, not a keyword dump.",
+            "Prompts must feel sequential on a group timeline: use continuation shots, different details, or gentle camera framing changes without hard scene cuts unless the text demands it.",
+            "Use the group shared_negative_prompt as a base for image_negative_prompt and add chunk-specific exclusions when useful.",
+            "animation_positive_prompt and grok_video_prompt must request a calm seamless loop with locked camera and subtle ambient motion only.",
+            "prompt_context_note must be short Russian text explaining how this chunk connects visually to neighboring chunks.",
+            "Avoid visible text, subtitles, UI, logos, watermarks, sudden action, and inconsistent style.",
+        ],
+        "chunks": compact_chunks,
+    }
+    request_body = {
+        "model": model,
+        "temperature": 0.25,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": "You write structured per-chunk image and loop-video prompts. Return JSON only."},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ],
+    }
+    request = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=XAI_VIDEO_GROUPS_TIMEOUT_SECONDS) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        raise RuntimeError(f"xAI chunk prompt request failed with HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"xAI chunk prompt request failed: {exc.reason}") from exc
+    completion = json.loads(response_body)
+    content = completion.get("choices", [{}])[0].get("message", {}).get("content", "")
+    ai_json = extract_json_object(content)
+    return normalize_xai_chunk_prompt_items(ai_json.get("chunks"), chunks)
+
+
+def generate_chunk_prompt_items(project: dict[str, Any], group: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    api_key = resolve_xai_api_key(project, pid)
+    if api_key:
+        try:
+            return call_xai_chunk_prompts(project, group, api_key), "grok", "Grok/xAI"
+        except Exception as exc:
+            fallback = generate_fallback_chunk_prompts(project, group)
+            note = truncate_text(f"Grok не сработал, использован локальный fallback: {type(exc).__name__}: {exc}", 700)
+            for item in fallback:
+                item["prompt_context_note"] = truncate_text(f"{item.get('prompt_context_note') or ''} {note}", 700)
+            return fallback, "group-context-fallback", note
+    return generate_fallback_chunk_prompts(project, group), "group-context-fallback", "Grok/xAI ключ не настроен; использован локальный fallback"
 
 
 def apply_chunk_prompt_items(project: dict[str, Any], items: list[dict[str, Any]], *, source: str = "manual") -> int:
@@ -4552,6 +4703,22 @@ def format_image_prompt(group: dict[str, Any], settings: dict[str, Any]) -> dict
     return {"positive_prompt": positive.strip(), "negative_prompt": negative.strip()}
 
 
+def format_chunk_image_prompt(project: dict[str, Any], group: dict[str, Any], chunk: dict[str, Any], settings: dict[str, Any]) -> dict[str, str]:
+    positive = truncate_text(chunk.get("image_prompt"), 3000)
+    negative = truncate_text(chunk.get("image_negative_prompt"), 1500)
+    if not positive:
+        fallback = generate_fallback_chunk_prompts(project, group)
+        fallback_item = next((item for item in fallback if str(item.get("id") or "") == str(chunk.get("id") or "")), None)
+        if fallback_item:
+            positive = truncate_text(fallback_item.get("image_prompt"), 3000)
+            negative = negative or truncate_text(fallback_item.get("image_negative_prompt"), 1500)
+    if not positive:
+        positive = format_image_prompt(group, settings).get("positive_prompt", "")
+    if not negative:
+        negative = format_image_prompt(group, settings).get("negative_prompt", "")
+    return {"positive_prompt": positive, "negative_prompt": negative}
+
+
 def update_group_prompts(project: dict[str, Any], group_id: str, payload: GroupUpdate) -> dict[str, Any]:
     group = find_video_group(project, group_id)
     if not group:
@@ -4808,11 +4975,13 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
     prompt = prompt_bundle.get("positive_prompt", "")
     if width and height:
         prompt = f"{prompt}\n\nComposition request: render for approximately {width}x{height} pixels; preserve this aspect ratio.".strip()
+    aspect_ratio_value = "9:16" if str(settings.get("aspect_ratio")) == "vertical" else "16:9"
     request_payload = {
         "model": model,
         "prompt": prompt,
         "n": 1,
-        "response_format": "url",
+        "aspect_ratio": aspect_ratio_value,
+        "resolution": normalize_grok_image_resolution(settings.get("grok_resolution")),
     }
     response = xai_json_request(base_url, "/images/generations", api_key, method="POST", payload=request_payload, timeout=180.0, operation_label="xAI image generation request")
     image_url = extract_xai_image_url(response)
@@ -4837,12 +5006,59 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
         "negative_prompt": prompt_bundle.get("negative_prompt", ""),
         "xai_request": {
             "endpoint": "/images/generations",
-            "unsupported_parameters_omitted": ["size"],
+            "supported_parameters": ["model", "prompt", "n", "aspect_ratio", "resolution"],
             "dimensions_requested_via_prompt": bool(width and height),
         },
         "created_at": now,
         "updated_at": now,
     }
+
+
+def generate_chunk_image_now(project: dict[str, Any], group_id: str, chunk_id: str, *, replace: bool = False) -> dict[str, Any]:
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    chunk = find_chunk_in_group(project, group, chunk_id)
+    settings = image_settings(project)
+    prompt_bundle = format_chunk_image_prompt(project, group, chunk, settings)
+    pseudo_group = dict(group)
+    pseudo_group["id"] = f"{group_id}_{chunk_id}"
+    pseudo_group["title"] = f"{group.get('title') or group_id} · чанк {int(chunk.get('order') or 0) + 1}"
+    pseudo_group["visual_prompt"] = prompt_bundle.get("positive_prompt", "")
+    pseudo_group["negative_prompt"] = prompt_bundle.get("negative_prompt", "")
+    image_meta = generate_group_image(project, pseudo_group, settings, prompt_bundle)
+    start, duration = chunk_timeline_span(project, group, chunk_id)
+    items = normalize_group_media_items(group.get("media_items"), group)
+    if replace:
+        items = [item for item in items if not (str(item.get("chunk_id") or "") == str(chunk_id) and item.get("prompt_scope") == "chunk" and item.get("source") == "generated")]
+    media_item = normalize_group_media_item({
+        "id": f"chunk_image_{chunk_id}_{uuid.uuid4().hex[:8]}",
+        "type": "image",
+        "path": image_meta.get("path", ""),
+        "url": image_meta.get("url", ""),
+        "label": f"Чанк #{int(chunk.get('order') or 0) + 1}",
+        "role": "chunk",
+        "source": "generated",
+        "scheduled": True,
+        "start_offset_sec": start,
+        "duration_sec": duration,
+        "fit": "cover",
+    }, len(items))
+    if not media_item:
+        raise RuntimeError("Generated image did not produce a media item")
+    media_item.update({
+        "chunk_id": str(chunk_id),
+        "prompt_scope": "chunk",
+        "prompt_source": str(chunk.get("prompt_source") or "fallback"),
+        "positive_prompt": prompt_bundle.get("positive_prompt", ""),
+        "negative_prompt": prompt_bundle.get("negative_prompt", ""),
+        "provider": image_meta.get("provider", ""),
+        "model": image_meta.get("model", ""),
+        "created_at": time.time(),
+    })
+    items.append(media_item)
+    group["media_items"] = normalize_group_media_items(items, group)
+    return media_item
 
 
 def enriched_chunk_response(chunk_id: str, project_id: str | None = None) -> dict[str, Any]:
@@ -5097,6 +5313,32 @@ def queue_worker() -> None:
                     result_kind="image_group",
                     result_group_id=group_id,
                     result_image_path=image_meta.get("path", ""),
+                    stage="saved",
+                )
+            elif task["kind"] == "chunk_image":
+                project = load_project(task.get("project_id"))
+                payload_data = task.get("payload") or task.get("params") or {}
+                group_id = str(payload_data.get("group_id") or "")
+                chunk_id = str(payload_data.get("chunk_id") or "")
+                replace = bool(payload_data.get("replace"))
+                group = find_video_group(project, group_id)
+                if not group:
+                    raise RuntimeError("Video group not found")
+                set_status(project, f"Генерация картинки чанка: {chunk_id}", True)
+                set_progress(active=True, percent=35, message="Готовим промт картинки чанка…", current_task_id=task["id"])
+                update_task(task["id"], progress_percent=35, message="Готовим промт картинки чанка…", stage="prompt")
+                set_progress(active=True, percent=65, message="Генерируем картинку чанка…", current_task_id=task["id"])
+                update_task(task["id"], progress_percent=65, message="Генерируем картинку чанка…", stage="generating")
+                media_item = generate_chunk_image_now(project, group_id, chunk_id, replace=replace)
+                normalize_arrangement(project)
+                save_project(project)
+                set_status(project, f"Картинка чанка готова: {chunk_id}")
+                update_task(
+                    task["id"],
+                    result_kind="chunk_image",
+                    result_group_id=group_id,
+                    result_chunk_id=chunk_id,
+                    result_image_path=media_item.get("path", ""),
                     stage="saved",
                 )
             elif task["kind"] == "video_group":
@@ -6088,6 +6330,41 @@ def enqueue_group_image_task(project: dict[str, Any], group_id: str, *, force: b
     return task
 
 
+def active_chunk_image_task(project_id: str, group_id: str, chunk_id: str) -> dict[str, Any] | None:
+    pid = safe_project_id(project_id)
+    with _queue_lock:
+        for task in _tasks:
+            payload = task.get("payload") or task.get("params") or {}
+            if task.get("kind") == "chunk_image" and task.get("project_id") == pid and payload.get("group_id") == group_id and payload.get("chunk_id") == chunk_id and task.get("status") in {"queued", "running"}:
+                return dict(task)
+    return None
+
+
+def group_has_chunk_image(group: dict[str, Any], chunk_id: str) -> bool:
+    items = normalize_group_media_items(group.get("media_items"), group)
+    return any(item.get("type") == "image" and item.get("prompt_scope") == "chunk" and str(item.get("chunk_id") or "") == str(chunk_id) and (item.get("path") or item.get("url")) for item in items)
+
+
+def enqueue_chunk_image_task(project: dict[str, Any], group_id: str, chunk_id: str, *, force: bool = False, replace: bool = False, missing_only: bool = True) -> dict[str, Any] | None:
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    chunk = find_chunk_in_group(project, group, chunk_id)
+    if missing_only and not force and group_has_chunk_image(group, chunk_id):
+        return None
+    existing = active_chunk_image_task(pid, group_id, chunk_id)
+    if existing and not force:
+        return existing
+    return enqueue_task(
+        "chunk_image",
+        project_id=pid,
+        payload={"group_id": group_id, "chunk_id": chunk_id, "replace": bool(replace)},
+        label=f"Картинка чанка #{int(chunk.get('order') or 0) + 1}",
+        stage="queued",
+    )
+
+
 def enqueue_group_video_task(project: dict[str, Any], group_id: str, *, force: bool = False) -> dict[str, Any] | None:
     pid = safe_project_id(str(project.get("id") or active_project_id()))
     group = find_video_group(project, group_id)
@@ -6425,11 +6702,60 @@ def generate_chunk_prompts_endpoint(group_id: str, project_id: str | None = Quer
     group = find_video_group(project, group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Video group not found")
-    items = generate_fallback_chunk_prompts(project, group)
-    updated = apply_chunk_prompt_items(project, items, source="group-context-fallback")
+    items, source, note = generate_chunk_prompt_items(project, group)
+    updated = apply_chunk_prompt_items(project, items, source=source)
     normalize_arrangement(project)
-    set_status(project, f"Generated chunk prompts for {updated} chunk(s)")
-    return {"updated_count": updated, "group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
+    set_status(project, f"Generated chunk prompts for {updated} chunk(s) via {source}")
+    return {"updated_count": updated, "source": source, "note": note, "group": find_video_group(project, group_id) or group, "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/{group_id}/chunks/{chunk_id}/image")
+def generate_chunk_image_endpoint(group_id: str, chunk_id: str, payload: ChunkImageRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    task = enqueue_chunk_image_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+    set_status(project, f"Картинка чанка поставлена в очередь: {chunk_id}", bool(task))
+    return {"queued_tasks": [task] if task else [], "skipped_count": 0 if task else 1, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/{group_id}/chunk-images")
+def generate_group_chunk_images_endpoint(group_id: str, payload: ChunkImagesRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    group = find_video_group(project, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Video group not found")
+    queued: list[dict[str, Any]] = []
+    skipped = 0
+    for chunk_id in [str(item) for item in group.get("chunk_ids", []) if str(item)]:
+        task = enqueue_chunk_image_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+        if task:
+            queued.append(task)
+        else:
+            skipped += 1
+    set_status(project, f"Картинки чанков группы поставлены в очередь: {len(queued)}, пропущено: {skipped}", bool(queued))
+    return {"queued_tasks": queued, "skipped_count": skipped, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
+
+
+@app.post("/api/project/groups/chunk-images")
+def generate_all_chunk_images_endpoint(payload: ChunkImagesRequest, project_id: str | None = Query(default=None)) -> dict[str, Any]:
+    project = load_project(project_id)
+    pid = safe_project_id(str(project.get("id") or active_project_id()))
+    groups = project.get("arrangement", {}).get("video", {}).get("groups", [])
+    queued: list[dict[str, Any]] = []
+    skipped = 0
+    for group in groups:
+        if not isinstance(group, dict) or not group.get("id"):
+            continue
+        group_id = str(group.get("id"))
+        for chunk_id in [str(item) for item in group.get("chunk_ids", []) if str(item)]:
+            task = enqueue_chunk_image_task(project, group_id, chunk_id, force=payload.force, replace=payload.replace, missing_only=payload.missing_only)
+            if task:
+                queued.append(task)
+            else:
+                skipped += 1
+    set_status(project, f"Картинки чанков всех групп поставлены в очередь: {len(queued)}, пропущено: {skipped}", bool(queued))
+    return {"queued_tasks": queued, "skipped_count": skipped, "queue": queue_snapshot(pid), "progress": progress_snapshot(), "project": enrich_project(load_project(pid))}
 
 
 @app.post("/api/project/groups/subtitles")
