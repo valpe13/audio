@@ -1444,6 +1444,8 @@ DEFAULT_SUBTITLE_SETTINGS = {
     "max_words": 5,
     "word_offset_sec": 0.0,
 }
+SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX = 1920
+SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX = 1080
 
 
 def normalize_subtitle_defaults(raw: Any) -> dict[str, Any]:
@@ -6119,8 +6121,8 @@ def locate_ffmpeg(project: dict[str, Any] | None = None) -> str:
     return shutil.which("ffmpeg") or ""
 
 
-def run_ffmpeg(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+def run_ffmpeg(cmd: list[str], cwd: Path | None = None) -> None:
+    proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "ffmpeg failed").strip()[:2000])
 
@@ -6227,11 +6229,81 @@ def progressive_subtitle_segments(block: dict[str, Any], group_start: float) -> 
     return segments
 
 
+def subtitle_event_model_for_block(block: dict[str, Any], group_start: float, group_end: float | None = None) -> list[dict[str, Any]]:
+    """Shared export subtitle event model mirrored by GroupSubtitleTimeline.buildEvents().
+
+    Event fields are deliberately JSON-like so preview and export can stay aligned:
+    start/end are timeline seconds, text is the progressive visible text, and the
+    remaining fields are the normalized visual style/position for the event.
+    """
+    if not isinstance(block, dict) or block.get("enabled") is False or not str(block.get("text") or "").strip():
+        return []
+    try:
+        clamp_end = float(group_end) if group_end is not None else None
+    except (TypeError, ValueError):
+        clamp_end = None
+    events: list[dict[str, Any]] = []
+    for start, end, text_value in progressive_subtitle_segments(block, group_start):
+        if clamp_end is not None:
+            if start >= clamp_end - 0.001:
+                continue
+            end = min(end, clamp_end)
+        if end - start <= 0.001:
+            continue
+        events.append({
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": text_value,
+            "full_text": str(block.get("text") or ""),
+            "position": block.get("position") or DEFAULT_SUBTITLE_SETTINGS["position"],
+            "font_family": block.get("font_family") or DEFAULT_SUBTITLE_SETTINGS["font_family"],
+            "font_size": block.get("font_size") or DEFAULT_SUBTITLE_SETTINGS["font_size"],
+            "color": block.get("color") or DEFAULT_SUBTITLE_SETTINGS["color"],
+            "background": block.get("background") or DEFAULT_SUBTITLE_SETTINGS["background"],
+            "background_opacity": block.get("background_opacity", DEFAULT_SUBTITLE_SETTINGS["background_opacity"]),
+            "outline": block.get("outline", DEFAULT_SUBTITLE_SETTINGS["outline"]),
+            "max_words": block.get("max_words", DEFAULT_SUBTITLE_SETTINGS["max_words"]),
+            "word_offset_sec": block.get("word_offset_sec", DEFAULT_SUBTITLE_SETTINGS["word_offset_sec"]),
+            "block_id": block.get("id", ""),
+        })
+    return events
+
+
+def export_subtitle_events(project: dict[str, Any]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for group, group_start, group_end in group_time_ranges(project):
+        defaults = normalize_subtitle_defaults(group.get("subtitle_defaults"))
+        raw_blocks = group.get("subtitle_blocks")
+        if not raw_blocks:
+            raw_blocks = group_subtitle_blocks_from_chunks(project, group)
+        blocks = normalize_subtitle_blocks(raw_blocks, {**group, "duration": max(0.05, group_end - group_start), "subtitle_defaults": defaults})
+        for block in blocks:
+            merged = normalize_subtitle_defaults({**defaults, **block})
+            styled_block = {**block, **merged}
+            for event in subtitle_event_model_for_block(styled_block, group_start, group_end):
+                event["group_id"] = str(group.get("id") or "")
+                events.append(event)
+    return sorted(events, key=lambda item: (float(item.get("start") or 0.0), float(item.get("end") or 0.0)))
+
+
 def ass_style_from_defaults(defaults: dict[str, Any], width: int, height: int, name: str = "Default") -> str:
     settings = normalize_subtitle_defaults(defaults)
-    font_size = max(8, min(160, int(float(settings.get("font_size") or 42))))
-    outline = max(0, min(12, int(float(settings.get("outline") or 2))))
-    margin_v = max(24, int(height * 0.08))
+    preview_font_size = max(8, min(160, float(settings.get("font_size") or DEFAULT_SUBTITLE_SETTINGS["font_size"])))
+    # Preview subtitles are authored directly in the standard export coordinate
+    # space: 1080x1920 portrait or 1920x1080 landscape. The browser scales that
+    # whole frame down for usability, so ASS only scales when exporting to a
+    # non-standard height.
+    reference_height = SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX if int(width or 0) > int(height or 0) else SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX
+    reference_width = SUBTITLE_PREVIEW_REFERENCE_HEIGHT_PX if int(width or 0) > int(height or 0) else SUBTITLE_PREVIEW_REFERENCE_WIDTH_PX
+    preview_to_video_scale = max(0.1, float(height or reference_height) / reference_height)
+    font_size = max(8, min(480, int(round(preview_font_size * preview_to_video_scale))))
+    outline = max(0, min(48, int(round(float(settings.get("outline") or 2) * preview_to_video_scale))))
+    # Match the preview CSS 5% margins in export-coordinate pixels, then convert
+    # through the same preview-to-video scale used for font size.
+    margin_h = max(8, int(round(reference_width * 0.05)))
+    margin_v = max(8, int(round(reference_height * 0.05)))
+    margin_h = max(8, int(round(margin_h * preview_to_video_scale)))
+    margin_v = max(8, int(round(margin_v * preview_to_video_scale)))
     background_alpha = int(round(255 * (1.0 - max(0.0, min(1.0, float(settings.get("background_opacity", 0.45)))))))
     return ",".join([
         f"Style: {name}",
@@ -6243,11 +6315,11 @@ def ass_style_from_defaults(defaults: dict[str, Any], width: int, height: int, n
         ass_color("000000", 0),
         "0", "0", "0", "0", "100", "100", "0", "0",
         "3" if float(settings.get("background_opacity", 0.45)) > 0 else "1",
-        str(outline), "0", "2", str(max(16, int(width * 0.05))), str(max(16, int(width * 0.05))), str(margin_v), "1",
+        str(outline), "0", "2", str(margin_h), str(margin_h), str(margin_v), "1",
     ])
 
 
-def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int, out: Path) -> bool:
+def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int, out: Path, subtitle_events: list[dict[str, Any]] | None = None) -> bool:
     events: list[str] = []
     styles: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
 
@@ -6268,18 +6340,12 @@ def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int,
         styles[key] = (name, normalized)
         return name
 
-    for group, group_start, group_end in group_time_ranges(project):
-        defaults = normalize_subtitle_defaults(group.get("subtitle_defaults"))
-        blocks = normalize_subtitle_blocks(group.get("subtitle_blocks"), {**group, "duration": max(0.05, group_end - group_start)})
-        for block in blocks:
-            if not block.get("enabled", True) or not str(block.get("text") or "").strip():
-                continue
-            position = str(block.get("position") or defaults.get("position") or "bottom")
-            align = 8 if position == "top" else 5 if position == "center" else 2
-            style_name = style_for({**defaults, **block})
-            for start, end, text_value in progressive_subtitle_segments(block, group_start):
-                text = ass_escape(text_value)
-                events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{style_name},,0,0,0,,{{\\an{align}}}{text}")
+    for event in (subtitle_events if subtitle_events is not None else export_subtitle_events(project)):
+        position = str(event.get("position") or "bottom")
+        align = 8 if position == "top" else 5 if position == "center" else 2
+        style_name = style_for(event)
+        text = ass_escape(event.get("text"))
+        events.append(f"Dialogue: 0,{ass_time(float(event.get('start') or 0.0))},{ass_time(float(event.get('end') or 0.0))},{style_name},,0,0,0,,{{\\an{align}}}{text}")
     if not events:
         return False
     style_lines = [ass_style_from_defaults(settings, width, height, name) for name, settings in styles.values()]
@@ -6306,6 +6372,13 @@ def write_export_subtitles_ass(project: dict[str, Any], width: int, height: int,
 def ffmpeg_subtitles_filter_arg(path: Path) -> str:
     value = str(path).replace("\\", "/").replace("'", r"\'").replace(":", r"\:")
     return f"subtitles='{value}'"
+
+
+def ffmpeg_executable_arg(ffmpeg: str) -> str:
+    path = Path(ffmpeg)
+    if ffmpeg and path.exists():
+        return str(path.resolve())
+    return ffmpeg
 
 
 def export_dimensions(project: dict[str, Any], payload: ExportRequest) -> tuple[int, int, str]:
@@ -6353,7 +6426,14 @@ def group_time_ranges(project: dict[str, Any]) -> list[tuple[dict[str, Any], flo
         spans = [chunk_times[item] for item in ids if item in chunk_times]
         if not spans:
             continue
-        ranges.append((group, min(item[0] for item in spans), max(item[1] for item in spans)))
+        start = min(item[0] for item in spans)
+        end = max(item[1] for item in spans)
+        group_with_timing = copy.deepcopy(group)
+        group_with_timing["start"] = round(start, 3)
+        group_with_timing["end"] = round(end, 3)
+        group_with_timing["duration"] = round(max(0.0, end - start), 3)
+        group_with_timing["duration_sec"] = group_with_timing["duration"]
+        ranges.append((group_with_timing, start, end))
     ranges.sort(key=lambda item: item[1])
     return ranges
 
@@ -6370,11 +6450,57 @@ def project_for_export_scope(project: dict[str, Any], payload: ExportRequest) ->
         selected = [group for group in groups if str(group.get("id")) in selected_ids]
     if not selected:
         raise HTTPException(status_code=400, detail="No groups selected for export")
+    original_ranges = group_time_ranges(project)
+    selected_range_starts = [start for group, start, _end in original_ranges if str(group.get("id")) in {str(item.get("id")) for item in selected}]
+    timeline_offset = min(selected_range_starts) if selected_range_starts else 0.0
     chunk_ids = {str(chunk_id) for group in selected for chunk_id in (group.get("chunk_ids") or [])}
     scoped = copy.deepcopy(project)
     scoped["chunks"] = [chunk for chunk in project.get("chunks", []) if str(chunk.get("id")) in chunk_ids]
-    scoped.setdefault("arrangement", {}).setdefault("video", {})["groups"] = selected
+    scoped.setdefault("arrangement", {}).setdefault("video", {})["groups"] = copy.deepcopy(selected)
+    scoped["_export_scope"] = scope
+    scoped["_export_timeline_offset_sec"] = round(max(0.0, float(timeline_offset or 0.0)), 3)
     return scoped, scope
+
+
+def subtitle_events_for_export_duration(project: dict[str, Any], duration: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return subtitle events guaranteed to overlap the exported video timeline.
+
+    Exported selected-group videos are rendered from a rebased audio/visual timeline
+    that starts at 0. This function defensively clamps generated events to that final
+    mux duration and exposes diagnostics so a "burned" status cannot hide an empty
+    or out-of-range ASS file.
+    """
+    export_duration = max(0.0, float(duration or 0.0))
+    raw_events = export_subtitle_events(project)
+    clamped: list[dict[str, Any]] = []
+    outside = 0
+    for raw in raw_events:
+        try:
+            start = float(raw.get("start") or 0.0)
+            end = float(raw.get("end") or 0.0)
+        except (TypeError, ValueError):
+            outside += 1
+            continue
+        if end <= 0.001 or start >= export_duration - 0.001:
+            outside += 1
+            continue
+        event = dict(raw)
+        event["start"] = round(max(0.0, start), 3)
+        event["end"] = round(min(export_duration, end), 3)
+        if float(event["end"]) - float(event["start"]) <= 0.001:
+            outside += 1
+            continue
+        clamped.append(event)
+    diagnostics = {
+        "raw_event_count": len(raw_events),
+        "events_outside_export_duration": outside,
+        "event_time_min": round(min((float(event.get("start") or 0.0) for event in clamped), default=0.0), 3),
+        "event_time_max": round(max((float(event.get("end") or 0.0) for event in clamped), default=0.0), 3),
+        "export_duration_sec": round(export_duration, 3),
+        "export_scope": project.get("_export_scope") or "full",
+        "export_timeline_offset_sec": project.get("_export_timeline_offset_sec", 0.0),
+    }
+    return clamped, diagnostics
 
 
 def ffmpeg_visual_filter(width: int, height: int, fit: str) -> str:
@@ -6454,23 +6580,83 @@ def split_range_by_speed_envelope(start: float, end: float, points: list[dict[st
     return [(cuts[idx], cuts[idx + 1]) for idx in range(len(cuts) - 1) if cuts[idx + 1] - cuts[idx] > 0.01]
 
 
+def group_media_item_duration(item: dict[str, Any], group_duration: float) -> float:
+    try:
+        explicit = float(item.get("duration_sec") or item.get("visual_duration_sec") or 0.0)
+    except (TypeError, ValueError):
+        explicit = 0.0
+    if explicit > 0:
+        return explicit
+    try:
+        start = float(item.get("start_offset_sec") or 0.0)
+    except (TypeError, ValueError):
+        start = 0.0
+    return max(0.25, max(0.0, group_duration) - max(0.0, start))
+
+
+def scheduled_visual_group_media_items(group: dict[str, Any]) -> list[dict[str, Any]]:
+    media_items = normalize_group_media_items(group.get("media_items"), group)
+    return sorted(
+        [
+            item for item in scheduled_group_media_items(media_items)
+            if item.get("path") or item.get("url")
+        ],
+        key=lambda item: (float(item.get("start_offset_sec") or 0.0), int(item.get("order") or 0)),
+    )
+
+
+def active_group_media_at(group: dict[str, Any], local_start_sec: float) -> tuple[dict[str, Any] | None, bool]:
+    try:
+        group_duration = max(0.25, float(group.get("duration") or group.get("duration_sec") or 0.0))
+    except (TypeError, ValueError):
+        group_duration = 0.25
+    local_start = max(0.0, float(local_start_sec or 0.0))
+    scheduled_items = scheduled_visual_group_media_items(group)
+    for item in scheduled_items:
+        try:
+            start = max(0.0, min(group_duration, float(item.get("start_offset_sec") or 0.0)))
+        except (TypeError, ValueError):
+            start = 0.0
+        end = min(group_duration, start + group_media_item_duration(item, group_duration))
+        if start <= local_start + 0.001 and local_start < end - 0.001:
+            return item, True
+    return None, bool(scheduled_items)
+
+
+def split_range_by_group_media_timeline(start: float, end: float, group: dict[str, Any], group_start: float, points: list[dict[str, float]]) -> list[tuple[float, float]]:
+    if end <= start:
+        return []
+    cuts = {round(start, 3), round(end, 3)}
+    for seg_start, seg_end in split_range_by_speed_envelope(start, end, points):
+        cuts.add(round(seg_start, 3))
+        cuts.add(round(seg_end, 3))
+    try:
+        group_duration = max(0.25, float(group.get("duration") or group.get("duration_sec") or (end - group_start)))
+    except (TypeError, ValueError):
+        group_duration = max(0.25, end - group_start)
+    for item in scheduled_visual_group_media_items(group):
+        try:
+            item_start = max(0.0, min(group_duration, float(item.get("start_offset_sec") or 0.0)))
+        except (TypeError, ValueError):
+            item_start = 0.0
+        item_end = min(group_duration, item_start + group_media_item_duration(item, group_duration))
+        for local_cut in (item_start, item_end):
+            absolute_cut = group_start + local_cut
+            if start + 0.001 < absolute_cut < end - 0.001:
+                cuts.add(round(absolute_cut, 3))
+    ordered = sorted(cuts)
+    return [(ordered[idx], ordered[idx + 1]) for idx in range(len(ordered) - 1) if ordered[idx + 1] - ordered[idx] > 0.01]
+
+
 def build_visual_segment(project: dict[str, Any], group: dict[str, Any], duration: float, width: int, height: int, fps: int, fit: str, out: Path, speed: float = 1.0, local_start_sec: float = 0.0) -> bool:
     ffmpeg = locate_ffmpeg(project)
     video_meta = group.get("video") if isinstance(group.get("video"), dict) else {}
     image_meta = group.get("image") if isinstance(group.get("image"), dict) else {}
-    media_items = normalize_group_media_items(group.get("media_items"), group)
     local_start = max(0.0, float(local_start_sec or 0.0))
-    selected_media = next(
-        (
-            item for item in media_items
-            if item.get("scheduled", True)
-            and item.get("path")
-            and float(item.get("start_offset_sec") or 0.0) <= local_start + 0.001
-            and local_start < float(item.get("start_offset_sec") or 0.0) + max(0.05, float(item.get("duration_sec") or 0.0)) - 0.001
-        ),
-        None,
-    )
-    selected_media = selected_media or next((item for item in media_items if item.get("type") == "video" and item.get("path")), None) or next((item for item in media_items if item.get("path")), None)
+    selected_media, has_scheduled_media = active_group_media_at(group, local_start)
+    media_items = normalize_group_media_items(group.get("media_items"), group)
+    if not selected_media and not has_scheduled_media:
+        selected_media = next((item for item in media_items if item.get("type") == "video" and item.get("path")), None) or next((item for item in media_items if item.get("path")), None)
     source_value = (selected_media or {}).get("path") or video_meta.get("path") or image_meta.get("path") or ""
     source_path = resolve_user_path(source_value) if source_value else None
     if not source_path or not source_path.exists():
@@ -6479,8 +6665,28 @@ def build_visual_segment(project: dict[str, Any], group: dict[str, Any], duratio
     speed_value = clamp_video_speed(speed)
     out.parent.mkdir(parents=True, exist_ok=True)
     if source_path.suffix.lower() in {".mp4", ".webm", ".gif", ".mov", ".mkv"}:
+        source_offset = 0.0
+        if selected_media:
+            try:
+                block_start = float(selected_media.get("start_offset_sec") or 0.0)
+            except (TypeError, ValueError):
+                block_start = 0.0
+            try:
+                source_offset = max(0.0, float(selected_media.get("offset_sec") or selected_media.get("source_offset_sec") or 0.0))
+            except (TypeError, ValueError):
+                source_offset = 0.0
+            source_offset += max(0.0, local_start - block_start)
+            try:
+                source_duration = float(selected_media.get("source_duration_sec") or selected_media.get("video_duration_sec") or 0.0)
+            except (TypeError, ValueError):
+                source_duration = 0.0
+            if source_duration > 0.05:
+                source_offset = source_offset % source_duration
         speed_filter = f"setpts=(PTS-STARTPTS)/{speed_value:.3f}"
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-stream_loop", "-1", "-i", str(source_path), "-t", f"{duration:.3f}", "-vf", f"{speed_filter},{vf},fps={fps},trim=duration={duration:.3f},setpts=PTS-STARTPTS", "-an", "-pix_fmt", "yuv420p", str(out)]
+        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-stream_loop", "-1"]
+        if source_offset > 0.001:
+            cmd += ["-ss", f"{source_offset:.3f}"]
+        cmd += ["-i", str(source_path), "-t", f"{duration:.3f}", "-vf", f"{speed_filter},{vf},fps={fps},trim=duration={duration:.3f},setpts=PTS-STARTPTS", "-an", "-pix_fmt", "yuv420p", str(out)]
     else:
         cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-loop", "1", "-i", str(source_path), "-t", f"{duration:.3f}", "-vf", f"{vf},fps={fps}", "-an", "-pix_fmt", "yuv420p", str(out)]
     run_ffmpeg(cmd)
@@ -6491,6 +6697,42 @@ def write_concat_file(paths: list[Path], concat_file: Path) -> None:
     def esc(path: Path) -> str:
         return str(path).replace("\\", "/").replace("'", "'\\''")
     concat_file.write_text("".join(f"file '{esc(path)}'\n" for path in paths), encoding="utf-8")
+
+
+def build_export_visual_segments(project: dict[str, Any], ranges: list[tuple[dict[str, Any], float, float]], duration: float, width: int, height: int, fps: int, fit: str, work_dir: Path, speed_points: list[dict[str, float]]) -> list[Path]:
+    segments: list[Path] = []
+    current = 0.0
+    segment_index = 1
+    for group, start, end in ranges:
+        if start > current + 0.05:
+            # Fill timeline gaps with the next group's still image/video if available; otherwise skip to the group.
+            current = start
+        range_end = min(end, duration)
+        if range_end - current <= 0:
+            continue
+        for seg_start, seg_end in split_range_by_group_media_timeline(current, range_end, group, start, speed_points):
+            segment_duration = max(0.1, seg_end - seg_start)
+            if segment_duration <= 0:
+                continue
+            segment_speed = main_timeline_speed_at(speed_points, seg_start + segment_duration / 2.0)
+            segment_path = work_dir / f"segment_{segment_index:04d}.mp4"
+            segment_index += 1
+            if build_visual_segment(project, group, segment_duration, width, height, fps, fit, segment_path, speed=segment_speed, local_start_sec=seg_start - start):
+                segments.append(segment_path)
+                current = seg_end
+        if current >= duration:
+            break
+    if current < duration - 0.05 and ranges:
+        last_group = ranges[-1][0]
+        tail_group_start = ranges[-1][1]
+        for seg_start, seg_end in split_range_by_group_media_timeline(current, duration, last_group, tail_group_start, speed_points):
+            tail_path = work_dir / f"segment_{segment_index:04d}.mp4"
+            segment_index += 1
+            tail_duration = max(0.1, seg_end - seg_start)
+            tail_speed = main_timeline_speed_at(speed_points, seg_start + tail_duration / 2.0)
+            if build_visual_segment(project, last_group, tail_duration, width, height, fps, fit, tail_path, speed=tail_speed, local_start_sec=seg_start - tail_group_start):
+                segments.append(tail_path)
+    return segments
 
 
 def render_project_audio(project: dict[str, Any], *, target_sr: int | None = None, channels: int = 1) -> tuple[np.ndarray, int]:
@@ -6637,6 +6879,7 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
     ffmpeg = locate_ffmpeg(project)
     if not ffmpeg:
         raise HTTPException(status_code=400, detail="ffmpeg was not found. Install ffmpeg on PATH or configure ComfyUI_windows_portable with ffmpeg.exe.")
+    ffmpeg_cmd = ffmpeg_executable_arg(ffmpeg)
     video_format = str(payload.video_format or "mp4").strip().lower()
     if video_format not in {"mp4", "webm", "mov"}:
         raise HTTPException(status_code=400, detail="video_format must be mp4, webm, or mov")
@@ -6646,71 +6889,69 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
     out_dir = project_exports_dir(pid)
     work_dir = out_dir / f"work_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir_abs = work_dir.resolve()
     final_audio, sr = render_project_audio(project, target_sr=int(payload.sample_rate or 48000), channels=2)
     duration = len(final_audio) / float(sr)
     audio_wav = work_dir / "audio.wav"
     sf.write(audio_wav, final_audio, sr, subtype="PCM_16")
     ranges = group_time_ranges(project)
     speed_points = normalized_main_timeline_speed_envelope(project)
-    speed_curve_applied = any(abs(point.get("speed", 1.0) - 1.0) > 0.001 for point in speed_points)
-    constant_speed, audio_speed_value = main_timeline_speed_is_constant(speed_points)
-    if speed_curve_applied and not constant_speed:
-        speed_note = "variable main timeline speed currently retimes visual video segments only; voice/music audio and burned subtitles stay on the generated audio timeline"
-    elif speed_curve_applied:
-        speed_note = f"constant main timeline speed {audio_speed_value:.3f}x applied to voice/music audio duration and visual video playback"
-    else:
-        speed_note = "main timeline speed is 1.0x"
-    segments: list[Path] = []
-    current = 0.0
-    segment_index = 1
-    for index, (group, start, end) in enumerate(ranges, start=1):
-        if start > current + 0.05:
-            # Fill timeline gaps with the next group's still image/video if available; otherwise skip to the group.
-            current = start
-        range_end = min(end, duration)
-        if range_end - current <= 0:
-            continue
-        for seg_start, seg_end in split_range_by_speed_envelope(current, range_end, speed_points):
-            segment_duration = max(0.1, seg_end - seg_start)
-            if segment_duration <= 0:
-                continue
-            segment_speed = main_timeline_speed_at(speed_points, seg_start + segment_duration / 2.0)
-            segment_path = work_dir / f"segment_{segment_index:04d}.mp4"
-            segment_index += 1
-            if build_visual_segment(project, group, segment_duration, width, height, fps, payload.video_fit, segment_path, speed=segment_speed, local_start_sec=seg_start - start):
-                segments.append(segment_path)
-                current = seg_end
-        if current >= duration:
-            break
+    speed_curve_applied = False
+    speed_note = "global/main timeline speed disabled; export uses constant 1.0x generated audio/group-local timing"
+    segments = build_export_visual_segments(project, ranges, duration, width, height, fps, str(payload.video_fit or "cover"), work_dir, speed_points)
     if not segments:
         raise HTTPException(status_code=400, detail="No group video/image assets found for video export. Generate at least one group image or video first.")
-    if current < duration - 0.05:
-        last_group = ranges[-1][0] if ranges else {}
-        for seg_start, seg_end in split_range_by_speed_envelope(current, duration, speed_points):
-            tail_path = work_dir / f"segment_{segment_index:04d}.mp4"
-            segment_index += 1
-            tail_duration = max(0.1, seg_end - seg_start)
-            tail_speed = main_timeline_speed_at(speed_points, seg_start + tail_duration / 2.0)
-            tail_group_start = ranges[-1][1] if ranges else 0.0
-            if build_visual_segment(project, last_group, tail_duration, width, height, fps, payload.video_fit, tail_path, speed=tail_speed, local_start_sec=seg_start - tail_group_start):
-                segments.append(tail_path)
     concat_file = work_dir / "segments.txt"
     write_concat_file(segments, concat_file)
     visual_mp4 = work_dir / "visual.mp4"
-    run_ffmpeg([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(visual_mp4)])
+    run_ffmpeg([ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(visual_mp4)])
     subtitle_ass = work_dir / "subtitles.ass"
     subtitle_visual = visual_mp4
-    subtitles_burned = write_export_subtitles_ass(project, width, height, subtitle_ass)
-    if subtitles_burned:
+    subtitle_events, subtitle_diagnostics = subtitle_events_for_export_duration(project, duration)
+    subtitle_event_count = len(subtitle_events)
+    subtitle_ass_created = write_export_subtitles_ass(project, width, height, subtitle_ass, subtitle_events)
+    subtitle_ass_size = subtitle_ass.stat().st_size if subtitle_ass.exists() else 0
+    subtitles_burned = False
+    subtitle_burn_status = "no_events"
+    subtitle_burn_error = ""
+    final_video_input = visual_mp4
+    if subtitle_ass_created:
+        subtitle_burn_status = "attempted"
+        # Use a short relative filename and run from the work directory. This avoids
+        # Windows drive-colon escaping and non-ASCII OneDrive path parsing problems
+        # in FFmpeg's subtitles filter while preserving normal absolute executable use.
         subtitle_visual = work_dir / "visual_subtitled.mp4"
-        run_ffmpeg([ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(visual_mp4), "-vf", ffmpeg_subtitles_filter_arg(subtitle_ass), "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an", str(subtitle_visual)])
+        try:
+            run_ffmpeg([
+                ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error",
+                "-i", "visual.mp4",
+                "-vf", "subtitles=subtitles.ass",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an",
+                "visual_subtitled.mp4",
+            ], cwd=work_dir_abs)
+            subtitles_burned = subtitle_visual.exists() and subtitle_visual.stat().st_size > 0
+            subtitle_burn_status = "burned" if subtitles_burned else "missing_output"
+            if not subtitles_burned:
+                raise RuntimeError("FFmpeg subtitle burn completed without producing visual_subtitled.mp4")
+            final_video_input = subtitle_visual
+        except Exception as exc:
+            subtitle_burn_error = str(exc)[:1000]
+            subtitle_burn_status = "failed"
+            raise RuntimeError(f"Subtitle burn-in failed after generating {subtitle_event_count} subtitle events at {subtitle_ass}: {subtitle_burn_error}") from exc
+    elif subtitle_diagnostics.get("raw_event_count", 0) > 0:
+        subtitle_burn_status = "events_outside_export_duration"
+        raise RuntimeError(
+            "Subtitle events were generated but none overlap the exported video duration "
+            f"({subtitle_diagnostics.get('raw_event_count')} raw events, duration {duration:.3f}s, "
+            f"scope {subtitle_diagnostics.get('export_scope')}, offset {subtitle_diagnostics.get('export_timeline_offset_sec')}s)"
+        )
     ext = "mov" if video_format == "mov" else "webm" if video_format == "webm" else "mp4"
     out = out_dir / f"final_video_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
     if video_format == "webm":
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(subtitle_visual), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
+        cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
     else:
         crf = "28" if payload.video_quality == "small" else "18" if payload.video_quality == "high" else "23"
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(subtitle_visual), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
+        cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
     run_ffmpeg(cmd)
     try:
         shutil.rmtree(work_dir)
@@ -6727,10 +6968,21 @@ def export_video_file(project: dict[str, Any], payload: ExportRequest) -> dict[s
         "fit": str(payload.video_fit or "cover"),
         "speed_curve_applied": speed_curve_applied,
         "speed_curve_points": len(speed_points),
-        "speed_curve_scope": "main_timeline",
+        "speed_curve_scope": "disabled_main_timeline",
         "speed_curve_note": speed_note,
         "subtitles_burned": subtitles_burned,
-        "timeline_fidelity": "group ranges from chunk timings; scheduled group media blocks are selected by local timeline time like the main preview, video assets are offset/looped best-effort and split at main-timeline speed-envelope points, subtitles are burned from group subtitle blocks when present, then muxed to preserve the audio timeline",
+        "subtitle_event_count": subtitle_event_count,
+        "subtitle_raw_event_count": subtitle_diagnostics.get("raw_event_count", subtitle_event_count),
+        "subtitle_events_outside_export_duration": subtitle_diagnostics.get("events_outside_export_duration", 0),
+        "subtitle_event_time_min": subtitle_diagnostics.get("event_time_min", 0.0),
+        "subtitle_event_time_max": subtitle_diagnostics.get("event_time_max", 0.0),
+        "subtitle_ass_created": subtitle_ass_created,
+        "subtitle_ass_size": subtitle_ass_size,
+        "subtitle_burn_status": subtitle_burn_status,
+        "subtitle_burn_error": subtitle_burn_error,
+        "subtitle_visual_input": "visual_subtitled.mp4" if final_video_input == subtitle_visual and subtitles_burned else "visual.mp4",
+        "subtitle_export_timeline_offset_sec": subtitle_diagnostics.get("export_timeline_offset_sec", 0.0),
+        "timeline_fidelity": "group ranges from chunk timings; scheduled group media blocks are selected by local timeline time like the main preview, global speed is ignored at 1.0x, subtitles are rebased/clamped to the exported group-local timeline, burned into the visual file, then muxed with audio",
     })
     project["export"] = result
     project.setdefault("exports", []).append(result)

@@ -13,6 +13,10 @@ const IMAGE_QUALITY_PRESETS = {
   balanced: { label: "Баланс", vertical: [1080, 1920], horizontal: [1920, 1080], steps: 22, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
   quality: { label: "Качество", vertical: [1080, 1920], horizontal: [1920, 1080], steps: 28, cfg: 6.0, sampler: "dpmpp_2m_sde", scheduler: "karras" },
 };
+const STANDARD_EXPORT_FRAMES = {
+  vertical: { width: 1080, height: 1920, orientation: "vertical" },
+  horizontal: { width: 1920, height: 1080, orientation: "horizontal" },
+};
 const IMAGE_QUALITY_ORDER = ["fast", "balanced", "quality"];
 const VIDEO_I2V_QUALITY_PRESETS = {
   fast: { label: "Быстро", frames: 14, fps: 6, motion_bucket_id: 96, augmentation_level: 0.01, min_cfg: 1.0, cfg: 2.0, steps: 12, sampler: "euler", scheduler: "normal" },
@@ -43,6 +47,7 @@ const TIMELINE_PANEL_MAX_WINDOW_RATIO = 0.7;
 const VIDEO_SPEED_DEFAULT = 1.0;
 const VIDEO_SPEED_MIN = 0.25;
 const VIDEO_SPEED_MAX = 2;
+const MAIN_TIMELINE_SPEED_UI_ENABLED = false;
 const state = {
   project: null,
   projects: [],
@@ -733,6 +738,7 @@ function groupChunkTimelineItems(group) {
 }
 
 function persistedVideoSpeedEnvelope() {
+  if (!MAIN_TIMELINE_SPEED_UI_ENABLED) return [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
   const duration = Math.max(0, state.timeline.durationSec || 0);
   const raw = videoArrangement().speed_envelope;
   const points = (Array.isArray(raw) ? raw : [])
@@ -938,7 +944,7 @@ async function saveVoiceArrangement(patch = {}) {
 async function saveVideoArrangement(patch = {}) {
   const payload = patch && typeof patch === "object" ? { ...patch } : {};
   state.project = await api(`/api/project/arrangement/video${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(payload) });
-  if (patch.speed_envelope || patch.main_timeline_speed_envelope) setStatus("Кривая скорости главного таймлайна сохранена");
+  if (patch.speed_envelope || patch.main_timeline_speed_envelope) setStatus("Global/main timeline speed remains disabled; stored speed fields were normalized for compatibility");
   render();
 }
 
@@ -1413,7 +1419,7 @@ function renderTransportLanes() {
   }
   renderMusicLanesHost(music);
   renderVideoGroupLanesHost();
-  const videoSpeedLane = $("videoSpeedAutomationLane");
+  const videoSpeedLane = MAIN_TIMELINE_SPEED_UI_ENABLED ? $("videoSpeedAutomationLane") : null;
   if (videoSpeedLane) {
     videoSpeedLane.innerHTML = "";
     videoSpeedLane.style.width = `${Math.max(1, timelinePx(state.timeline.durationSec || 1))}px`;
@@ -1754,7 +1760,7 @@ function updateTimelineWorkspaceWidth() {
   }
   const videoGroupLanesHost = $("videoGroupLanesHost");
   if (videoGroupLanesHost) videoGroupLanesHost.style.setProperty("--video-group-timeline-width", timelineColumnWidth);
-  const videoSpeedLane = $("videoSpeedAutomationLane");
+  const videoSpeedLane = MAIN_TIMELINE_SPEED_UI_ENABLED ? $("videoSpeedAutomationLane") : null;
   if (videoSpeedLane) videoSpeedLane.style.width = timelineColumnWidth;
   const zoomLabel = $("zoomValue");
   if (zoomLabel) zoomLabel.textContent = `${Number(state.timeline.pixelsPerSecond).toFixed(state.timeline.pixelsPerSecond < 10 ? 2 : 0)} px/s`;
@@ -1911,8 +1917,9 @@ function renderVideoSpeedEnvelope(lane) {
     circle.setAttribute("cy", String(coords[index].y));
     circle.setAttribute("r", "8");
     circle.dataset.index = String(index);
-    circle.addEventListener("pointerdown", beginVideoSpeedDrag);
-    circle.addEventListener("contextmenu", (event) => { event.preventDefault(); event.stopPropagation(); deleteVideoSpeedPoint(index); });
+    circle.classList.add("disabled");
+    circle.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); setStatus("Глобальная скорость таймлайна отключена: экспорт и предпросмотр используют 1.0×"); });
+    circle.addEventListener("contextmenu", (event) => { event.preventDefault(); event.stopPropagation(); });
     svg.appendChild(circle);
   });
   lane.appendChild(svg);
@@ -1944,13 +1951,13 @@ function updateAutomationCursorReadout(point = null) {
   const target = state.envelope.target || "music";
   if (state.videoSpeed.selectedIndex >= 0) {
     const speedPoint = persistedVideoSpeedEnvelope()[state.videoSpeed.selectedIndex] || { time: state.timeline.cursorSec, speed: videoSpeedAt(state.timeline.cursorSec) };
-    el.textContent = `Точка скорости главного таймлайна · ${formatTime(speedPoint.time)} · ${speedPoint.speed.toFixed(2)}× · базовая ${VIDEO_SPEED_DEFAULT.toFixed(2)}×`;
+    el.textContent = `Скорость главного таймлайна отключена · ${formatTime(speedPoint.time)} · используется ${VIDEO_SPEED_DEFAULT.toFixed(2)}× для стабильного экспорта`;
     return;
   }
   const value = point || { time: state.timeline.cursorSec, volume: envelopeValueAt(target, state.timeline.cursorSec) };
   const label = envelopeTargetLabel(target);
   const selected = state.envelope.selectedIndex >= 0 ? `${label} point selected` : "Volume automation";
-  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · скорость таймлайна ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · music gain = master curve × lane curve × lane base × clip`;
+  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · music gain = master curve × lane curve × lane base × clip`;
 }
 
 function renderMusicClipBlock(track, leftPx, widthPx, looped = false, index = 0, repeated = false, lane = null) {
@@ -2382,60 +2389,33 @@ function setLocalEnvelope(target, points) {
 function setLocalVideoSpeedEnvelope(points) {
   state.project.arrangement = state.project.arrangement || {};
   state.project.arrangement.video = state.project.arrangement.video || {};
-  state.project.arrangement.video.speed_envelope = points;
-  state.project.arrangement.main_timeline_speed_envelope = points;
+  state.project.arrangement.video.speed_envelope = [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
+  state.project.arrangement.main_timeline_speed_envelope = [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
 }
 
 function saveVideoSpeedEnvelope(points) {
-  return saveVideoArrangement({ main_timeline_speed_envelope: points, speed_envelope: points });
+  return saveVideoArrangement({ main_timeline_speed_envelope: [{ time: 0, speed: VIDEO_SPEED_DEFAULT }], speed_envelope: [{ time: 0, speed: VIDEO_SPEED_DEFAULT }] });
 }
 
 function beginVideoSpeedDrag(event) {
   event.stopPropagation();
   event.preventDefault();
-  const index = Number(event.currentTarget.dataset.index);
-  if (event.altKey) {
-    deleteVideoSpeedPoint(index);
-    return;
-  }
-  state.envelope.selectedIndex = -1;
-  state.videoSpeed.selectedIndex = index;
+  state.videoSpeed.selectedIndex = -1;
   updateAutomationCursorReadout();
-  let currentIndex = index;
-  const onMove = (moveEvent) => {
-    const points = persistedVideoSpeedEnvelope();
-    const dragged = videoSpeedPointFromEvent(moveEvent);
-    points[currentIndex] = dragged;
-    points.sort((a, b) => a.time - b.time);
-    currentIndex = points.findIndex((point) => point === dragged);
-    state.videoSpeed.selectedIndex = currentIndex;
-    setLocalVideoSpeedEnvelope(points);
-    applyPreviewVideoPlaybackRate();
-    renderTransportLanes();
-  };
-  const onUp = () => {
-    document.removeEventListener("pointermove", onMove);
-    document.removeEventListener("pointerup", onUp);
-    saveVideoSpeedEnvelope(persistedVideoSpeedEnvelope()).catch((err) => setStatus(`Не удалось сохранить скорость таймлайна: ${err.message}`));
-  };
-  document.addEventListener("pointermove", onMove);
-  document.addEventListener("pointerup", onUp, { once: true });
+  setStatus("Глобальная скорость таймлайна отключена: экспорт и предпросмотр используют 1.0×");
 }
 
 function deleteVideoSpeedPoint(index = state.videoSpeed.selectedIndex) {
-  const remaining = persistedVideoSpeedEnvelope().filter((_, i) => i !== index);
-  const points = remaining.length ? remaining : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
   state.videoSpeed.selectedIndex = -1;
-  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Не удалось удалить точку скорости таймлайна: ${err.message}`));
+  saveVideoSpeedEnvelope().catch((err) => setStatus(`Не удалось сбросить скорость таймлайна: ${err.message}`));
 }
 
 function addVideoSpeedPoint(event) {
-  const point = videoSpeedPointFromEvent(event);
-  const points = persistedVideoSpeedEnvelope().concat([point]).sort((a, b) => a.time - b.time);
   state.envelope.selectedIndex = -1;
-  state.videoSpeed.selectedIndex = points.findIndex((p) => p === point);
+  state.videoSpeed.selectedIndex = -1;
   updateAutomationCursorReadout();
-  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Не удалось сохранить скорость таймлайна: ${err.message}`));
+  setStatus("Глобальная скорость таймлайна отключена: новые точки не добавляются, используется 1.0×");
+  saveVideoSpeedEnvelope().catch((err) => setStatus(`Не удалось сбросить скорость таймлайна: ${err.message}`));
 }
 
 function deleteEnvelopePoint(target = state.envelope.target || "music", index = state.envelope.selectedIndex) {
@@ -2595,12 +2575,20 @@ function renderPreviewScreen() {
   frame.classList.toggle("hasImage", hasImage && !hasVideo);
   frame.classList.toggle("hasVideo", hasVideo);
   const targetFrame = targetFrameDimensions();
-  frame.style.setProperty("--target-frame-aspect", `${targetFrame.width} / ${targetFrame.height}`);
+  applyTargetFrameCssVars(frame.closest(".previewPhoneWrap") || frame, targetFrame, {
+    maxWidth: Math.max(280, Math.min(760, (frame.closest(".previewStageStub")?.clientWidth || 760) - 32)),
+    maxHeight: Math.max(280, Math.min(720, (window.innerHeight || 900) - ($("timelineTransport")?.getBoundingClientRect?.().height || 0) - ($("status")?.closest?.("header")?.getBoundingClientRect?.().height || 0) - 140)),
+  });
   const aspectLabel = $("previewAspectLabel");
   if (aspectLabel) aspectLabel.textContent = isHorizontal ? "16:9" : "9:16";
   const mediaFrame = $("previewMediaFrame");
   const textOverlay = $("previewTextOverlay");
-  const subtitles = window.XTTSStudio?.GroupSubtitleTimeline?.progressiveBlocks?.(group?.subtitle_blocks || [], localTime, group?.duration || 1, group?.subtitle_defaults || {}) || [];
+  const subtitleModule = window.XTTSStudio?.GroupSubtitleTimeline;
+  const subtitleEvents = subtitleModule?.buildEvents?.(group?.subtitle_blocks || [], Number(group?.start || 0), group?.duration || 1, group?.subtitle_defaults || {}) || [];
+  const timelineTime = Number(group?.start || 0) + localTime;
+  const subtitles = subtitleEvents.length
+    ? subtitleEvents.filter((event) => timelineTime >= Number(event.start || 0) && timelineTime < Number(event.end || 0))
+    : subtitleModule?.progressiveBlocks?.(group?.subtitle_blocks || [], localTime, group?.duration || 1, group?.subtitle_defaults || {}) || [];
   const subtitleOverlay = groupSubtitleOverlayHtml(subtitles);
   const previewVideo = $("previewVideo");
   const fit = ["cover", "contain", "fill"].includes(item?.fit) ? item.fit : "contain";
@@ -2633,7 +2621,7 @@ function renderPreviewScreen() {
   if (hasVideo) {
     frame.style.removeProperty("background-image");
     $("previewTitle").textContent = group?.title || "Видео группы";
-    $("previewDescription").textContent = `Таймлайн группы · видео · ${formatTime(localTime)} · скорость ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}×`;
+    $("previewDescription").textContent = `Таймлайн группы · видео · ${formatTime(localTime)}`;
     $("previewImageHint").textContent = `${group?.title || "Группа"} · ${formatTime(state.timeline.cursorSec)} → локально ${formatTime(localTime)} · видео/субтитры из таймлайна группы.`;
   } else if (hasImage) {
     frame.style.removeProperty("background-image");
@@ -2836,12 +2824,32 @@ function loopedVideoOffset(item, timeSec, videoEl = null) {
 }
 
 function targetFrameDimensions() {
-  const aspect = state.project?.settings?.image_aspect_ratio || "vertical";
-  const width = Number(state.project?.settings?.image_width || (aspect === "horizontal" ? 1152 : 896));
-  const height = Number(state.project?.settings?.image_height || (aspect === "horizontal" ? 896 : 1152));
-  const safeWidth = Math.max(1, width || 896);
-  const safeHeight = Math.max(1, height || 1152);
-  return { width: safeWidth, height: safeHeight, orientation: safeWidth >= safeHeight ? "horizontal" : "vertical" };
+  const aspect = state.project?.settings?.image_aspect_ratio === "horizontal" ? "horizontal" : "vertical";
+  return { ...STANDARD_EXPORT_FRAMES[aspect] };
+}
+
+function targetFrameStyle(targetFrame = targetFrameDimensions(), { maxWidth = 760, maxHeight = 720 } = {}) {
+  const width = Math.max(1, Number(targetFrame.width) || STANDARD_EXPORT_FRAMES.vertical.width);
+  const height = Math.max(1, Number(targetFrame.height) || STANDARD_EXPORT_FRAMES.vertical.height);
+  const scale = Math.max(0.05, Math.min(1, Number(maxWidth || width) / width, Number(maxHeight || height) / height));
+  return {
+    width,
+    height,
+    scale,
+    css: `--target-frame-width:${width}px;--target-frame-height:${height}px;--target-frame-scale:${scale};--target-frame-scaled-width:${width * scale}px;--target-frame-scaled-height:${height * scale}px;--target-frame-aspect:${width} / ${height}`,
+  };
+}
+
+function applyTargetFrameCssVars(element, targetFrame = targetFrameDimensions(), options = {}) {
+  if (!element) return targetFrameStyle(targetFrame, options);
+  const frame = targetFrameStyle(targetFrame, options);
+  element.style.setProperty("--target-frame-width", `${frame.width}px`);
+  element.style.setProperty("--target-frame-height", `${frame.height}px`);
+  element.style.setProperty("--target-frame-scale", String(frame.scale));
+  element.style.setProperty("--target-frame-scaled-width", `${frame.width * frame.scale}px`);
+  element.style.setProperty("--target-frame-scaled-height", `${frame.height * frame.scale}px`);
+  element.style.setProperty("--target-frame-aspect", `${frame.width} / ${frame.height}`);
+  return frame;
 }
 
 function hexToRgba(hex, opacity = 1) {
@@ -2859,11 +2867,11 @@ function groupSubtitleOverlayHtml(subtitles = []) {
   if (!blocks.length) return "";
   return `<div class="groupMediaPreviewSubtitles" aria-label="Активные субтитры">${blocks.map((block) => {
     const position = ["top", "center", "bottom"].includes(block.position) ? block.position : "bottom";
-    const outline = clamp(block.outline ?? 2, 0, 12);
-    const style = [
-      `font-family:${String(block.font_family || "Arial").replace(/[;{}]/g, "")}, sans-serif`,
-      `font-size:${clamp(block.font_size || 42, 8, 160)}px`,
-      `color:${String(block.color || "#ffffff").replace(/[;{}]/g, "")}`,
+      const outline = clamp(block.outline ?? 2, 0, 12);
+      const style = [
+        `font-family:${String(block.font_family || "Arial").replace(/[;{}]/g, "")}, sans-serif`,
+      `font-size:${clamp(block.font_size || 20, 8, 160)}px`,
+        `color:${String(block.color || "#ffffff").replace(/[;{}]/g, "")}`,
       `background:${hexToRgba(block.background || "#000000", block.background_opacity ?? 0.45)}`,
       `text-shadow:${outline ? `0 0 ${outline}px #000, 0 0 ${Math.max(1, outline * 2)}px #000` : "none"}`,
     ].join(";");
@@ -2958,7 +2966,7 @@ function renderGroupTimelinePreview(card, { item = null, subtitles = [], chunk =
   }
   const targetFrame = targetFrameDimensions();
   const frameClass = targetFrame.orientation === "horizontal" ? "previewMediaFrame horizontal" : "previewMediaFrame";
-  const frameStyle = `--target-frame-aspect:${targetFrame.width} / ${targetFrame.height}`;
+  const frameStyle = targetFrameStyle(targetFrame, { maxWidth: 720, maxHeight: 420 }).css;
   const media = item.type === "video"
     ? `<video src="${escapeHtml(url)}" ${isPlayback ? "" : "controls"} muted loop playsinline data-preview-media-id="${escapeHtml(item.id || "")}" style="object-fit:${fit}"></video>`
     : `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="object-fit:${fit}" />`;
@@ -3892,9 +3900,20 @@ function renderExport() {
     exp.width && exp.height ? `${escapeHtml(exp.width)}×${escapeHtml(exp.height)}` : "",
     exp.fps ? `${escapeHtml(exp.fps)} fps` : "",
   ].filter(Boolean).join(" · ");
+  const subtitleStatus = isVideo && (exp.subtitle_burn_status || exp.subtitle_event_count !== undefined)
+    ? [
+        `subtitles: ${escapeHtml(exp.subtitle_burn_status || (exp.subtitles_burned ? "burned" : "no_events"))}`,
+        exp.subtitle_event_count !== undefined ? `${escapeHtml(exp.subtitle_event_count)} visible events` : "",
+        exp.subtitle_raw_event_count !== undefined && exp.subtitle_raw_event_count !== exp.subtitle_event_count ? `${escapeHtml(exp.subtitle_raw_event_count)} raw events` : "",
+        exp.subtitle_events_outside_export_duration ? `${escapeHtml(exp.subtitle_events_outside_export_duration)} outside export duration` : "",
+        exp.subtitle_event_time_max ? `range ${escapeHtml(exp.subtitle_event_time_min || 0)}–${escapeHtml(exp.subtitle_event_time_max)}s` : "",
+        exp.subtitle_visual_input ? `mux input ${escapeHtml(exp.subtitle_visual_input)}` : "",
+      ].filter(Boolean).join(" · ")
+    : "";
   root.innerHTML = `
     <a href="${exp.url}" download>Download ${escapeHtml(exp.path || "export")}</a>
     <p>${details}</p>
+    ${subtitleStatus ? `<p class="imageResolvedSettings">${subtitleStatus}</p>` : ""}
     ${isVideo ? `<video controls src="${exp.url}" class="exportPreviewVideo"></video>` : `<audio controls src="${exp.url}"></audio>`}
     ${exp.timeline_fidelity ? `<p class="imageResolvedSettings">${escapeHtml(exp.timeline_fidelity)}</p>` : ""}
   `;
@@ -4577,7 +4596,7 @@ $("voiceAutomationLane").addEventListener("contextmenu", (event) => {
   if (state.envelope.selectedIndex >= 0) deleteEnvelopePoint("voice");
 });
 
-const videoSpeedAutomationLane = $("videoSpeedAutomationLane");
+const videoSpeedAutomationLane = MAIN_TIMELINE_SPEED_UI_ENABLED ? $("videoSpeedAutomationLane") : null;
 if (videoSpeedAutomationLane) {
   videoSpeedAutomationLane.addEventListener("click", (event) => {
     if (event.target.closest?.(".envelopePoint")) return;
@@ -4632,6 +4651,7 @@ window.addEventListener("resize", () => {
   const currentHeight = $("timelineTransport")?.getBoundingClientRect?.().height || Number(localStorage.getItem(TIMELINE_PANEL_HEIGHT_KEY)) || 660;
   setTimelinePanelHeight(currentHeight, { persist: true });
   updatePlayheadPosition();
+  if (state.screenMode === "preview") renderPreviewScreen();
 });
 
 window.addEventListener("scroll", () => {

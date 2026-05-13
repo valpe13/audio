@@ -264,20 +264,20 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupMediaThumb img, .groupMediaThumb video { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; border-radius: 8px; background: #050711; }
 .groupMediaThumb span { font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .groupMediaPreview { display: grid; gap: .35rem; place-items: center; min-height: 220px; border: 1px solid #30384d; border-radius: 12px; background: #080b11; padding: .65rem; }
-.groupMediaPreviewStage { position: relative; display: grid; place-items: center; width: 100%; min-height: 220px; max-height: 420px; border-radius: 10px; overflow: hidden; background: #050711; }
+.groupMediaPreviewStage { position: relative; display: grid; place-items: center; width: 100%; min-height: 220px; max-height: 460px; border-radius: 10px; overflow: hidden; background: #050711; }
 .groupMediaPreviewStage.empty { border: 1px dashed #3a4359; }
 .groupMediaPreview img, .groupMediaPreview video { max-width: 100%; max-height: 420px; width: auto; height: auto; object-fit: contain; border-radius: 10px; }
-.groupMediaPreviewStage .previewMediaFrame { position: relative; inset: auto; width: min(100%, 236px); height: auto; max-height: 420px; aspect-ratio: var(--target-frame-aspect, 9 / 16); }
-.groupMediaPreviewStage .previewMediaFrame.horizontal { width: min(100%, 720px); }
+.groupMediaPreviewStage .previewMediaFrame { position: relative; inset: auto; width: var(--target-frame-width, 1080px); height: var(--target-frame-height, 1920px); max-width: none; max-height: none; aspect-ratio: var(--target-frame-aspect, 9 / 16); transform: scale(var(--target-frame-scale, .22)); transform-origin: center center; margin: calc((var(--target-frame-scaled-height, 420px) - var(--target-frame-height, 1920px)) / 2) calc((var(--target-frame-scaled-width, 236px) - var(--target-frame-width, 1080px)) / 2); }
+.groupMediaPreviewStage .previewMediaFrame.horizontal { width: var(--target-frame-width, 1920px); }
 .groupMediaPreviewStage .previewMediaFrame > img, .groupMediaPreviewStage .previewMediaFrame > video { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; object-fit: contain; }
 .groupMediaPreview small { color: #aeb7c8; font-family: Consolas, monospace; overflow-wrap: anywhere; }
 .groupMediaPreviewEmpty { display: grid; gap: .35rem; place-items: center; padding: .8rem; color: #aeb7c8; text-align: center; }
 .groupMediaPreviewOverlaySlot { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-.groupMediaPreviewSubtitles { position: absolute; inset: 0; z-index: 3; pointer-events: none; padding: clamp(10px, 5%, 28px); box-sizing: border-box; overflow: hidden; }
-.groupMediaPreviewSubtitle { position: absolute; left: clamp(8px, 5%, 32px); right: clamp(8px, 5%, 32px); display: flex; justify-content: center; overflow: hidden; }
-.groupMediaPreviewSubtitle.pos-top { top: clamp(8px, 5%, 32px); align-items: flex-start; }
+.groupMediaPreviewSubtitles { position: absolute; inset: 0; z-index: 3; pointer-events: none; padding: 5%; box-sizing: border-box; overflow: hidden; }
+.groupMediaPreviewSubtitle { position: absolute; left: 5%; right: 5%; display: flex; justify-content: center; overflow: hidden; }
+.groupMediaPreviewSubtitle.pos-top { top: 5%; align-items: flex-start; }
 .groupMediaPreviewSubtitle.pos-center { top: 50%; transform: translateY(-50%); align-items: center; }
-.groupMediaPreviewSubtitle.pos-bottom { bottom: clamp(8px, 5%, 32px); align-items: flex-end; }
+.groupMediaPreviewSubtitle.pos-bottom { bottom: 5%; align-items: flex-end; }
 .groupMediaPreviewSubtitle span { display: inline-block; max-width: 100%; max-height: 100%; padding: .18em .45em; border-radius: .28em; line-height: 1.16; text-align: center; white-space: normal; overflow-wrap: anywhere; word-break: normal; overflow: hidden; box-sizing: border-box; }
 .groupSettingsStub { padding: .9rem; border: 1px dashed #8b6b22; border-radius: 12px; background: #2c240f; color: #ffdda1; font-weight: 800; }
 .groupImagePanel { display: grid; gap: .85rem; padding: .85rem; border: 1px solid #30384d; border-radius: 14px; background: #0f131d; }
@@ -300,10 +300,10 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 .groupImagePrompts h4 { margin: .65rem 0 .25rem; color: #ffe66f; }
 .groupImagePrompts pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #dce6f7; font-family: Consolas, monospace; line-height: 1.45; }
 .previewPlaceholder { display: grid; gap: .9rem; }
-.previewStageStub { display: grid; place-items: center; min-height: 520px; border: 1px solid #2b3244; border-radius: 18px; background: radial-gradient(circle at 50% 18%, rgba(109,140,255,.16), transparent 34%), #0f131d; }
-.previewPhoneWrap { display: grid; gap: .75rem; justify-items: center; width: min(760px, 92vw); }
-.phoneFrameStub { width: min(360px, 80vw); aspect-ratio: var(--target-frame-aspect, 9 / 16); border: 2px solid #5269bd; border-radius: 28px; display: grid; place-items: center; align-content: center; gap: .7rem; padding: 0; text-align: center; background: linear-gradient(180deg, #141a28, #080b11); background-size: cover; background-position: center; box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); position: relative; overflow: hidden; }
-.phoneFrameStub.horizontal { width: min(720px, 86vw); aspect-ratio: var(--target-frame-aspect, 16 / 9); border-radius: 22px; }
+.previewStageStub { display: grid; place-items: center; min-height: max(520px, calc(var(--target-frame-scaled-height, 620px) + 5.5rem)); border: 1px solid #2b3244; border-radius: 18px; background: radial-gradient(circle at 50% 18%, rgba(109,140,255,.16), transparent 34%), #0f131d; overflow: auto; }
+.previewPhoneWrap { display: grid; gap: .75rem; justify-items: center; width: min(760px, 92vw); min-height: calc(var(--target-frame-scaled-height, 620px) + 4.8rem); align-content: start; }
+.phoneFrameStub { width: var(--target-frame-width, 1080px); height: var(--target-frame-height, 1920px); aspect-ratio: var(--target-frame-aspect, 9 / 16); border: 2px solid #5269bd; border-radius: 64px; display: grid; place-items: center; align-content: center; gap: .7rem; padding: 0; text-align: center; background: linear-gradient(180deg, #141a28, #080b11); background-size: cover; background-position: center; box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); position: relative; overflow: hidden; transform: scale(var(--target-frame-scale, .32)); transform-origin: top center; margin-bottom: calc(var(--target-frame-scaled-height, 620px) - var(--target-frame-height, 1920px)); }
+.phoneFrameStub.horizontal { width: var(--target-frame-width, 1920px); height: var(--target-frame-height, 1080px); aspect-ratio: var(--target-frame-aspect, 16 / 9); border-radius: 48px; }
 .phoneFrameStub.hasImage, .phoneFrameStub.hasVideo { text-shadow: 0 2px 10px rgba(0,0,0,.8); align-content: end; }
 .previewMediaFrame { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; aspect-ratio: var(--target-frame-aspect, 9 / 16); overflow: hidden; background: #080b11; background-size: contain; background-repeat: no-repeat; background-position: center; }
 .previewMediaFrame.horizontal { aspect-ratio: var(--target-frame-aspect, 16 / 9); }
