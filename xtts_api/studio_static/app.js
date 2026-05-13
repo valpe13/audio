@@ -1,4 +1,4 @@
-﻿const FRONTEND_BUILD = "2026-05-13-xtts-studio-refinements";
+const FRONTEND_BUILD = "2026-05-13-xtts-studio-visual-consistency";
 const REALVISXL_CHECKPOINT = "RealVisXL_V5.0_fp16.safetensors";
 const SVD_XT_CHECKPOINT = "svd_xt.safetensors";
 const VIDEO_I2V_BACKEND_LABELS = {
@@ -320,6 +320,8 @@ function settingsPayload() {
     image_scheduler: $("imageScheduler")?.value?.trim() || resolved.scheduler,
     image_negative_preset: $("imageNegativePreset")?.value?.trim() || "default",
     image_exclude_people: Boolean($("imageExcludePeople")?.checked),
+    image_no_text: Boolean($("imageNoText")?.checked ?? true),
+    project_visual_context: $("projectVisualContext")?.value?.trim() || "",
     image_seed: Number($("imageSeed")?.value || 0),
     video_i2v_enabled: Boolean($("videoI2vEnabled")?.checked),
     video_i2v_quality_preset: videoQuality,
@@ -876,7 +878,7 @@ function renderSettings() {
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
-  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 1080, image_height: 1920, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 1080, image_height: 1920, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_no_text: true, project_visual_context: "", image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
   const setIfNotFocused = (id, value) => {
     const el = $(id);
     if (el && document.activeElement !== el) el.value = value;
@@ -906,6 +908,9 @@ function renderSettings() {
   setIfNotFocused("imageNegativePreset", p.settings.image_negative_preset ?? imageDefaults.image_negative_preset);
   const excludePeople = $("imageExcludePeople");
   if (excludePeople && document.activeElement !== excludePeople) excludePeople.checked = Boolean(p.settings.image_exclude_people ?? imageDefaults.image_exclude_people);
+  const noText = $("imageNoText");
+  if (noText && document.activeElement !== noText) noText.checked = Boolean(p.settings.image_no_text ?? imageDefaults.image_no_text);
+  setIfNotFocused("projectVisualContext", p.settings.project_visual_context ?? imageDefaults.project_visual_context);
   setIfNotFocused("imageSeed", p.settings.image_seed ?? imageDefaults.image_seed);
   const videoEnabled = $("videoI2vEnabled");
   if (videoEnabled && document.activeElement !== videoEnabled) videoEnabled.checked = Boolean(p.settings.video_i2v_enabled ?? imageDefaults.video_i2v_enabled);
@@ -2927,6 +2932,7 @@ function renderGroupDetail(group, { force = false } = {}) {
     ["title", "Название", "input"],
     ["summary", "Краткое описание", "textarea"],
     ["visual_prompt", "Промт картинки", "textarea"],
+    ["visual_context", "Общий визуальный контекст группы", "textarea"],
     ["negative_prompt", "Негативный промт", "textarea"],
     ["animation_positive_prompt", "Позитивный промт анимации", "textarea"],
     ["animation_negative_prompt", "Негативный промт анимации", "textarea"],

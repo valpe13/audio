@@ -59,7 +59,7 @@ DEFAULT_REF = API_DIR / "reference_audio" / "natalia_shtin" / "natalia_shtin_cle
 DEFAULT_OUTPUT_DIR = PROJECTS_DIR / "outputs"
 UPLOADS_DIR = PROJECTS_DIR / "uploads"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-STUDIO_BUILD = "2026-05-13-xtts-studio-refinements"
+STUDIO_BUILD = "2026-05-13-xtts-studio-visual-consistency"
 SVD_HISTORY_WAIT_TIMEOUT_SECONDS = 1800.0
 XAI_IMAGINE_VIDEO_POLL_TIMEOUT_SECONDS = 900.0
 XAI_IMAGINE_VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -200,12 +200,12 @@ VIDEO_I2V_MOTION_STYLE_PRESETS = {
     },
 }
 COMMON_REALVISXL_NEGATIVE = (
-    "text, watermark, logo, low quality, blurry, distorted anatomy, extra fingers, deformed hands, "
+    "text, letters, captions, subtitles, signs, labels, watermark, logo, readable writing, UI, low quality, blurry, distorted anatomy, extra fingers, deformed hands, "
     "bad anatomy, missing fingers, bad eyes, duplicate people, cropped face, noisy, jpeg artifacts, "
     "overexposed, underexposed, oversaturated, cartoon, anime, cgi, plastic skin"
 )
 DEFAULT_VIDEO_GROUP_NEGATIVE = (
-    "text, captions, subtitles, watermark, logo, signature, low quality, blurry, out of focus, "
+    "text, letters, captions, subtitles, UI, signs, labels, readable writing, watermark, logo, signature, low quality, blurry, out of focus, "
     "noisy, jpeg artifacts, overexposed, underexposed, oversaturated, cartoon, anime, cgi, "
     "plastic skin, distorted anatomy, bad anatomy, deformed hands, extra fingers, missing fingers, "
     "bad eyes, duplicate people, cropped face"
@@ -234,6 +234,15 @@ NO_PEOPLE_IMAGE_NEGATIVE = (
 NO_PEOPLE_VISUAL_INSTRUCTION = (
     "No people, faces, bodies, crowds, hands, characters, portraits, clothing, or human silhouettes. "
     "Focus only on environment, landscape, objects, architecture, nature, artifacts, tools, textures, light, weather, and atmosphere. "
+)
+NO_TEXT_IMAGE_INSTRUCTION = (
+    "No visible text anywhere in the image: no words, no letters, no subtitles, no captions, no UI, no signs, "
+    "no labels, no watermark, no logo, no readable writing, and no glyph-like markings. "
+)
+NO_TEXT_IMAGE_NEGATIVE = "text, letters, words, captions, subtitles, UI, interface, signs, signboard, labels, readable writing, watermark, logo, signature, typography, calligraphy, numbers, glyphs"
+GROK_REFERENCE_LIMITATION_NOTE = (
+    "Direct image reference conditioning is not implemented for xAI /v1/images/generations in XTTS Studio; "
+    "consistency is prompt/context-based using project/group shared visual context."
 )
 
 
@@ -356,6 +365,8 @@ DEFAULT_SETTINGS = {
     "image_model_checkpoint": REALVISXL_CHECKPOINT,
     "image_negative_preset": "default",
     "image_exclude_people": False,
+    "image_no_text": True,
+    "project_visual_context": "",
     "image_seed": 0,
     "image_steps": 22,
     "image_cfg": 6.0,
@@ -467,6 +478,8 @@ class SettingsUpdate(BaseModel):
     image_model_checkpoint: str | None = None
     image_negative_preset: str | None = None
     image_exclude_people: bool | None = None
+    image_no_text: bool | None = None
+    project_visual_context: str | None = None
     image_seed: int | None = None
     image_steps: int | None = Field(default=None, ge=1, le=150)
     image_cfg: float | None = Field(default=None, ge=0.0, le=30.0)
@@ -581,6 +594,7 @@ class GroupUpdate(BaseModel):
     summary: str | None = None
     chunk_ids: list[str] | None = None
     visual_prompt: str | None = None
+    visual_context: str | None = None
     negative_prompt: str | None = None
     animation_positive_prompt: str | None = None
     animation_negative_prompt: str | None = None
@@ -1123,6 +1137,44 @@ def append_unique_csv_terms(base: str, extra: str, *, limit: int = 1500) -> str:
     return truncate_text(", ".join(terms), limit)
 
 
+def no_text_images_enabled(project: dict[str, Any] | None = None, settings: dict[str, Any] | None = None) -> bool:
+    raw = settings if isinstance(settings, dict) else ((project or {}).get("settings", {}) if isinstance((project or {}).get("settings"), dict) else {})
+    return bool(raw.get("image_no_text", DEFAULT_SETTINGS["image_no_text"]))
+
+
+def project_visual_context(project: dict[str, Any] | None = None) -> str:
+    settings = (project or {}).get("settings", {}) if isinstance((project or {}).get("settings"), dict) else {}
+    return truncate_text(settings.get("project_visual_context"), 1400)
+
+
+def group_visual_context(group: dict[str, Any] | None = None) -> str:
+    return truncate_text((group or {}).get("visual_context"), 1400)
+
+
+def apply_no_text_to_prompts(positive: Any, negative: Any, *, enabled: bool = True, positive_limit: int = 3000, negative_limit: int = 1500) -> dict[str, str]:
+    pos = truncate_text(positive, positive_limit)
+    neg = truncate_text(negative, negative_limit)
+    if not enabled:
+        return {"positive_prompt": pos, "negative_prompt": neg}
+    if NO_TEXT_IMAGE_INSTRUCTION.lower() not in pos.lower():
+        pos = truncate_text(f"{NO_TEXT_IMAGE_INSTRUCTION}{pos}", positive_limit)
+    neg = append_unique_csv_terms(neg, NO_TEXT_IMAGE_NEGATIVE, limit=negative_limit)
+    return {"positive_prompt": pos, "negative_prompt": neg}
+
+
+def visual_context_prefix(project: dict[str, Any], group: dict[str, Any]) -> str:
+    parts = []
+    project_context = project_visual_context(project)
+    group_context = group_visual_context(group)
+    if project_context:
+        parts.append(f"Project-wide visual continuity context: {project_context}")
+    if group_context:
+        parts.append(f"Group shared visual continuity context: {group_context}")
+    if parts:
+        parts.append("Keep the same visual style, palette, era, camera language, character/subject identity, clothing, materials, environment, and mood unless the narration explicitly requires a change.")
+    return ". ".join(parts)
+
+
 def ordered_project_chunks(project: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted([chunk for chunk in project.get("chunks", []) if isinstance(chunk, dict)], key=lambda c: c.get("order", 0))
 
@@ -1178,6 +1230,10 @@ def fallback_video_groups(chunks: list[dict[str, Any]], max_chunks_per_group: in
             "summary": summary,
             "chunk_ids": ids,
             "visual_prompt": visual_prompt,
+            "visual_context": truncate_text(
+                "Shared group continuity: keep the same documentary style, muted palette, camera language, era, environment, materials, and any character/subject identity across this group.",
+                700,
+            ),
             "negative_prompt": negative_prompt,
             "animation_positive_prompt": animation_positive_prompt,
             "animation_negative_prompt": DEFAULT_ANIMATION_NEGATIVE_PROMPT,
@@ -1551,6 +1607,7 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
             "summary": truncate_text(raw_group.get("summary"), 600),
             "chunk_ids": ids,
             "visual_prompt": truncate_text(raw_group.get("visual_prompt"), 900),
+            "visual_context": truncate_text(raw_group.get("visual_context") or raw_group.get("shared_visual_context"), 1400),
             "negative_prompt": truncate_text(raw_group.get("negative_prompt"), 500),
             "animation_positive_prompt": normalize_animation_positive_prompt(raw_group),
             "animation_negative_prompt": normalize_animation_negative_prompt(raw_group),
@@ -1560,6 +1617,11 @@ def normalize_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], *, sou
             "order": number - 1,
             "source": source or truncate_text(raw_group.get("source") or "manual", 40),
         }
+        if not item["visual_context"]:
+            item["visual_context"] = truncate_text(
+                f"Shared continuity for {item['title']}: {item['visual_prompt'] or item['summary']}. Keep character/subject identity, palette, camera, era, clothing, materials, and environment consistent across this group.",
+                1400,
+            )
         try:
             item["playback_speed"] = round(max(0.25, min(2.0, float(raw_group.get("playback_speed", 1.0) or 1.0))), 3)
         except (TypeError, ValueError):
@@ -1732,6 +1794,7 @@ def repair_ai_video_groups(raw_groups: Any, chunks: list[dict[str, Any]], expect
             "summary": truncate_text(raw_group.get("summary"), 600),
             "chunk_ids": ids,
             "visual_prompt": truncate_text(raw_group.get("visual_prompt"), 900),
+            "visual_context": truncate_text(raw_group.get("visual_context") or raw_group.get("shared_visual_context"), 1400),
             "negative_prompt": truncate_text(raw_group.get("negative_prompt"), 500),
             "animation_positive_prompt": normalize_animation_positive_prompt(raw_group),
             "animation_negative_prompt": normalize_animation_negative_prompt(raw_group),
@@ -1846,6 +1909,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
     system_prompt = (
         "You group narration chunks into visually coherent video scenes and write image-generation prompts plus simple loop animation prompts. "
         "For each group, imagine the single frame an SDXL/RealVisXL model should render from the narration. "
+        "Maintain project-wide visual consistency unless the narration clearly changes scene: shared style, palette, era, camera language, environment logic, and recurring character/subject identity. "
         "Also describe a calm seamless image-to-video loop using only subtle cyclic natural ambient motion, with the first and last frame matching naturally. "
         "Return strictly valid JSON only, with root object {\"groups\":[...]}."
     )
@@ -1863,8 +1927,12 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
             "instead of generic 'figures' (for example two prehistoric humans, early hominids, ancient villagers) and make clothing/materials "
             "explicitly visible: barefoot prehistoric humans, rough animal-hide wraps, fur cloaks, handmade leather, plant-fiber cordage, or linen tunics only if era-appropriate. "
             "For prehistoric scenes, include no modern objects visible and no tailored clothing visible in the positive prompt when people or camps are shown. "
-            "Do not include text overlays, subtitles, watermarks, UI, markdown, or multiple alternative scenes."
+            "Do not include text overlays, subtitles, captions, watermarks, logos, UI, signs, labels, readable writing, markdown, or multiple alternative scenes."
             + (" If exclude_people_from_images is true, this field must contain no people, faces, bodies, hands, crowds, characters, portraits, or clothing; describe only environmental, object, nature, architecture, or artifact-focused scenes." if exclude_people else "")
+        ),
+        "visual_context": (
+            "English shared continuity context for this group, 35-90 words. Specify recurring characters/subjects, exact visual style, camera language, palette, era, clothing/materials, environment, lighting, and mood. "
+            "This field will be prepended to per-chunk image prompts to keep a consistent visual sequence. No story action and no text-in-image instructions except the no-text ban."
         ),
         "negative_prompt": (
             "English comma-separated SDXL negative prompt, 18-35 concise terms. Include quality/anatomy/text artifacts and "
@@ -1892,7 +1960,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
         "output_schema": {"groups": [group_schema]},
         "rules": [
             "Root must be exactly an object with key groups.",
-            "Each group fields: id, title, summary, chunk_ids, visual_prompt, negative_prompt, animation_positive_prompt, animation_negative_prompt, grok_video_prompt, mood, scene_type.",
+            "Each group fields: id, title, summary, chunk_ids, visual_prompt, visual_context, negative_prompt, animation_positive_prompt, animation_negative_prompt, grok_video_prompt, mood, scene_type.",
             "Use every chunk exactly once.",
             "Do not omit any chunk id, even if a chunk is short or transitional.",
             "Keep original chunk order.",
@@ -1907,6 +1975,9 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
             "When exclude_people_from_images is true, visual_prompt must avoid people, faces, bodies, crowds, hands, characters, portraits, human silhouettes, skin, eyes, hair, and clothing; create calm environmental/object/nature/architecture/artifact-focused scenes instead.",
             "When exclude_people_from_images is true, negative_prompt must include people, person, human, face, body, crowd, hands, characters, clothing, portrait, skin, eyes, hair.",
             "visual_prompt must be written in English and be directly usable as the main SDXL/RealVisXL scene description.",
+            "visual_context must be written in English and define the group's shared consistency bible: characters/subjects, camera language, palette, era, clothing/materials, environment, and lighting for all chunk images in this group.",
+            "Across the whole response, keep a shared project look and palette unless the narration explicitly changes it; do not redesign recurring characters or subjects between groups.",
+            "No generated image should contain visible text: avoid all words, letters, subtitles, captions, UI, signs, labels, watermarks, logos, readable writing, numbers, and glyph-like markings unless the user explicitly requested text inside the image.",
             "visual_prompt must be 60-120 words when possible, detailed enough to render a specific frame.",
             "visual_prompt must describe exactly one coherent image: what is visible, where it is, approximate era, light, composition, people, objects, materials, and mood.",
             "Infer the setting, era, and visual rules separately for each group from the provided chunk text and section context; never force one lecture theme globally across all groups.",
@@ -1917,7 +1988,7 @@ def call_xai_video_groups(chunks: list[dict[str, Any]], payload: VideoGroupsAiRe
             "Avoid abstract themes, bullet-like keyword dumps, vague phrases such as 'the concept of', and instructions to the viewer or model.",
             "If the narration is abstract, convert it into a plausible calm documentary scene anchored in the text instead of listing concepts.",
             "negative_prompt must be English, comma-separated, SDXL-friendly, and useful for RealVisXL quality control.",
-            "negative_prompt should include common defects: text, watermark, logo, low quality, blurry, deformed hands, extra fingers, bad anatomy, oversaturated, cartoon, anime, cgi.",
+            "negative_prompt should include common defects: text, letters, words, captions, subtitles, UI, signs, labels, readable writing, watermark, logo, low quality, blurry, deformed hands, extra fingers, bad anatomy, oversaturated, cartoon, anime, cgi.",
             "negative_prompt must add exclusions relevant to the specific group setting: e.g. anachronistic objects for historical scenes, neon UI for calm nature scenes, spacesuits for naked-eye astronomy scenes, horror or action for sleep-documentary scenes, or other theme-specific problems inferred from context.",
             "For ancient/prehistory/historical scenes only, negative_prompt must strongly exclude modern clothing, business suit, office suit, shirt and tie, jacket, blazer, dress pants, modern shoes, sneakers, watch, glasses, phone, modern objects, city, office, modern buildings, cars, tourists, safari, modern campfire scene.",
             "For non-ancient lectures, do not copy ancient/prehistory exclusions unless that group's own visual setting actually implies them; choose exclusions that match that non-ancient topic.",
@@ -2236,7 +2307,7 @@ def normalize_chunk_prompt_fields(chunk: dict[str, Any], patch: dict[str, Any], 
 def generate_fallback_chunk_prompts(project: dict[str, Any], group: dict[str, Any]) -> list[dict[str, Any]]:
     chunks_by_id = {str(chunk.get("id") or ""): chunk for chunk in ordered_project_chunks(project)}
     group_ids = [str(chunk_id) for chunk_id in group.get("chunk_ids", []) if str(chunk_id) in chunks_by_id]
-    context = truncate_text(group.get("visual_prompt") or group.get("summary") or group.get("title"), 500)
+    context = truncate_text(". ".join(part for part in [project_visual_context(project), group_visual_context(group), group.get("visual_prompt") or group.get("summary") or group.get("title")] if part), 900)
     out: list[dict[str, Any]] = []
     for index, chunk_id in enumerate(group_ids):
         chunk = chunks_by_id[chunk_id]
@@ -2244,14 +2315,14 @@ def generate_fallback_chunk_prompts(project: dict[str, Any], group: dict[str, An
         prev_text = truncate_text(chunks_by_id[group_ids[index - 1]].get("text"), 120) if index > 0 else ""
         next_text = truncate_text(chunks_by_id[group_ids[index + 1]].get("text"), 120) if index + 1 < len(group_ids) else ""
         visual = truncate_text(
-            f"A coherent close-up or continuation shot within the same scene as the group prompt: {context}. Chunk narration focus: {text}. Keep the same era, location, lighting, lens, color palette, materials, characters and atmosphere as adjacent chunks; do not create a hard scene cut.",
+            f"A coherent close-up or continuation shot within the same scene as the group prompt: {context}. Chunk narration focus: {text}. Keep the same project and group style, era, location, lighting, lens, color palette, materials, characters/subjects and atmosphere as adjacent chunks; do not create a hard scene cut. {NO_TEXT_IMAGE_INSTRUCTION if no_text_images_enabled(project) else ''}",
             1400,
         )
         note = truncate_text(f"Группа: {group.get('title') or group.get('summary')}. Предыдущий чанк: {prev_text}. Следующий чанк: {next_text}.", 700)
         out.append({
             "id": chunk_id,
             "image_prompt": visual,
-            "image_negative_prompt": group.get("negative_prompt") or DEFAULT_VIDEO_GROUP_NEGATIVE,
+            "image_negative_prompt": append_unique_csv_terms(group.get("negative_prompt") or DEFAULT_VIDEO_GROUP_NEGATIVE, NO_TEXT_IMAGE_NEGATIVE if no_text_images_enabled(project) else "", limit=1500),
             "animation_positive_prompt": build_animation_positive_prompt(text, visual),
             "animation_negative_prompt": group.get("animation_negative_prompt") or DEFAULT_ANIMATION_NEGATIVE_PROMPT,
             "grok_video_prompt": format_grok_imagine_video_prompt({"visual_prompt": visual, "summary": text, "animation_positive_prompt": group.get("animation_positive_prompt")}),
@@ -2300,13 +2371,17 @@ def call_xai_chunk_prompts(project: dict[str, Any], group: dict[str, Any], api_k
     base_url = (os.environ.get("XAI_BASE_URL") or "https://api.x.ai/v1").rstrip("/")
     model = resolve_xai_text_model(project, str(project.get("settings", {}).get("ai_chunk_prompt_model") or ""))
     compact_chunks = [{"id": str(chunk.get("id") or ""), "order": idx, "text": truncate_text(chunk.get("text") or chunk.get("tts_text"), 900)} for idx, chunk in enumerate(chunks)]
+    project_context = project_visual_context(project)
+    no_text_enabled = no_text_images_enabled(project)
     payload = {
         "task": "Create per-chunk visual prompts for XTTS Studio within one existing video group.",
+        "project_visual_context": project_context,
         "group_context": {
             "id": str(group.get("id") or ""),
             "title": truncate_text(group.get("title"), 160),
             "summary": truncate_text(group.get("summary"), 700),
             "shared_visual_prompt": truncate_text(group.get("visual_prompt"), 1400),
+            "shared_visual_context": group_visual_context(group),
             "shared_negative_prompt": truncate_text(group.get("negative_prompt"), 900),
             "shared_animation_prompt": truncate_text(group.get("animation_positive_prompt"), 900),
             "mood": truncate_text(group.get("mood"), 120),
@@ -2316,13 +2391,17 @@ def call_xai_chunk_prompts(project: dict[str, Any], group: dict[str, Any], api_k
         "rules": [
             "Return strictly valid JSON object only with key chunks.",
             "Return exactly one item for every provided chunk id; keep chunk order and do not invent ids.",
-            "Use one consistent shared visual style, era, location, lighting, lens, color palette, materials, and atmosphere across all chunks in this group.",
+            "Use one consistent shared visual style, era, location, lighting, lens, color palette, materials, atmosphere, and recurring character/subject identity across all chunks in this group.",
+            "Apply project_visual_context to every chunk prompt when it is provided; it is the project-wide consistency bible for style, palette, camera language, era, clothing/materials, environment, and recurring identity.",
+            "Apply group_context.shared_visual_context to every chunk prompt; it is the group-level consistency bible for this sequence.",
             "Each image_prompt must be a render-ready English prompt for one still image corresponding to that chunk, 45-110 words, concrete and coherent, not a keyword dump.",
             "Prompts must feel sequential on a group timeline: use continuation shots, different details, or gentle camera framing changes without hard scene cuts unless the text demands it.",
             "Use the group shared_negative_prompt as a base for image_negative_prompt and add chunk-specific exclusions when useful.",
             "animation_positive_prompt and grok_video_prompt must request a calm seamless loop with locked camera and subtle ambient motion only.",
             "prompt_context_note must be short Russian text explaining how this chunk connects visually to neighboring chunks.",
             "Avoid visible text, subtitles, UI, logos, watermarks, sudden action, and inconsistent style.",
+            f"no_text_images is {'true' if no_text_enabled else 'false'}.",
+            "When no_text_images is true, every image_prompt must explicitly ban visible text and every image_negative_prompt must include text, letters, words, captions, subtitles, UI, signs, labels, readable writing, watermark, logo.",
         ],
         "chunks": compact_chunks,
     }
@@ -3485,6 +3564,8 @@ def image_settings(project: dict[str, Any]) -> dict[str, Any]:
         "negative_preset": str(raw.get("image_negative_preset") or DEFAULT_SETTINGS["image_negative_preset"]).strip().lower(),
         "seed": seed,
         "exclude_people": bool(raw.get("image_exclude_people", DEFAULT_SETTINGS["image_exclude_people"])),
+        "no_text": bool(raw.get("image_no_text", DEFAULT_SETTINGS["image_no_text"])),
+        "project_visual_context": truncate_text(raw.get("project_visual_context"), 1400),
         "steps": max(1, min(150, steps)),
         "cfg": max(0.0, min(30.0, cfg)),
         "sampler": sampler,
@@ -4725,6 +4806,9 @@ def image_orientation_phrase(settings: dict[str, Any]) -> str:
 
 def format_image_prompt(group: dict[str, Any], settings: dict[str, Any]) -> dict[str, str]:
     visual = truncate_text(group.get("visual_prompt") or group.get("summary") or group.get("title"), 1400)
+    context = truncate_text(". ".join(part for part in [settings.get("project_visual_context"), group.get("visual_context")] if part), 1400)
+    if context:
+        visual = truncate_text(f"{context}. Scene prompt: {visual}", 2200)
     negative_group = truncate_text(group.get("negative_prompt"), 700)
     mood = truncate_text(group.get("mood") or "calm", 120)
     scene_type = truncate_text(group.get("scene_type") or "sleep lecture", 120)
@@ -4773,12 +4857,15 @@ def format_image_prompt(group: dict[str, Any], settings: dict[str, Any]) -> dict
     else:
         positive = f"{visual}. {orientation}".strip()
         negative = negative_group
-    return {"positive_prompt": positive.strip(), "negative_prompt": negative.strip()}
+    return apply_no_text_to_prompts(positive.strip(), negative.strip(), enabled=bool(settings.get("no_text", True)))
 
 
 def format_chunk_image_prompt(project: dict[str, Any], group: dict[str, Any], chunk: dict[str, Any], settings: dict[str, Any]) -> dict[str, str]:
     positive = truncate_text(chunk.get("image_prompt"), 3000)
     negative = truncate_text(chunk.get("image_negative_prompt"), 1500)
+    context = visual_context_prefix(project, group)
+    if positive and context:
+        positive = truncate_text(f"{context}. Chunk image prompt: {positive}", 3000)
     if not positive:
         fallback = generate_fallback_chunk_prompts(project, group)
         fallback_item = next((item for item in fallback if str(item.get("id") or "") == str(chunk.get("id") or "")), None)
@@ -4789,7 +4876,7 @@ def format_chunk_image_prompt(project: dict[str, Any], group: dict[str, Any], ch
         positive = format_image_prompt(group, settings).get("positive_prompt", "")
     if not negative:
         negative = format_image_prompt(group, settings).get("negative_prompt", "")
-    return {"positive_prompt": positive, "negative_prompt": negative}
+    return apply_no_text_to_prompts(positive, negative, enabled=bool(settings.get("no_text", True)))
 
 
 def update_group_prompts(project: dict[str, Any], group_id: str, payload: GroupUpdate) -> dict[str, Any]:
@@ -4801,6 +4888,7 @@ def update_group_prompts(project: dict[str, Any], group_id: str, payload: GroupU
         "title": 120,
         "summary": 600,
         "visual_prompt": 1400,
+        "visual_context": 1400,
         "negative_prompt": 1500,
         "animation_positive_prompt": 900,
         "animation_negative_prompt": 700,
@@ -4846,6 +4934,10 @@ def create_video_group_dict(title: str, summary: str, chunk_ids: list[str], *, o
         "summary": truncate_text(summary, 600),
         "chunk_ids": [str(chunk_id) for chunk_id in chunk_ids if str(chunk_id)],
         "visual_prompt": visual_prompt,
+        "visual_context": truncate_text(
+            f"Shared continuity for {title or 'Group'}: keep a consistent documentary style, palette, camera language, era, subject identity, clothing/materials, environment, and lighting across all related images.",
+            1400,
+        ),
         "negative_prompt": DEFAULT_VIDEO_GROUP_NEGATIVE,
         "animation_positive_prompt": animation_positive,
         "animation_negative_prompt": DEFAULT_ANIMATION_NEGATIVE_PROMPT,
@@ -4868,7 +4960,7 @@ def generate_prompt_for_group(project: dict[str, Any], group: dict[str, Any]) ->
     exclude_people = bool(project.get("settings", {}).get("image_exclude_people", DEFAULT_SETTINGS["image_exclude_people"]))
     fallback = fallback_video_groups([chunks_by_id[str(chunk_id)] for chunk_id in group.get("chunk_ids", []) if str(chunk_id) in chunks_by_id], max_chunks_per_group=max(1, len(group.get("chunk_ids", []) or [1])), exclude_people=exclude_people)
     prompt_source = fallback[0] if fallback else create_video_group_dict(group.get("title") or "Group", summary, group.get("chunk_ids", []), order=int(group.get("order") or 0), source="prompt-fallback")
-    for key in ("summary", "visual_prompt", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "grok_video_prompt", "mood", "scene_type"):
+    for key in ("summary", "visual_prompt", "visual_context", "negative_prompt", "animation_positive_prompt", "animation_negative_prompt", "grok_video_prompt", "mood", "scene_type"):
         if prompt_source.get(key):
             group[key] = prompt_source[key]
     group["source"] = "generated-selected-group-prompt"
@@ -4987,6 +5079,7 @@ def generate_group_placeholder_svg(project: dict[str, Any], group: dict[str, Any
 
 
 def generate_group_image(project: dict[str, Any], group: dict[str, Any], settings: dict[str, Any], prompt_bundle: dict[str, str]) -> dict[str, Any]:
+    prompt_bundle = apply_no_text_to_prompts(prompt_bundle.get("positive_prompt", ""), prompt_bundle.get("negative_prompt", ""), enabled=bool(settings.get("no_text", True)))
     if settings.get("provider") == "grok":
         try:
             return run_xai_grok_image_workflow(project, group, settings, prompt_bundle)
@@ -5045,9 +5138,11 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
     model = str(settings.get("grok_model") or GROK_IMAGE_MODEL).strip() or GROK_IMAGE_MODEL
     width = int(settings.get("width") or 1024)
     height = int(settings.get("height") or 1024)
-    prompt = prompt_bundle.get("positive_prompt", "")
+    prompt = apply_no_text_to_prompts(prompt_bundle.get("positive_prompt", ""), prompt_bundle.get("negative_prompt", ""), enabled=bool(settings.get("no_text", True))).get("positive_prompt", "")
     if width and height:
         prompt = f"{prompt}\n\nComposition request: render for approximately {width}x{height} pixels; preserve this aspect ratio.".strip()
+    if settings.get("no_text", True):
+        prompt = f"{prompt}\n\nStrict content constraint: do not render any text, letters, readable writing, captions, subtitles, UI, signs, labels, watermark, logo, or numbers anywhere in the image unless explicitly requested by the user.".strip()
     aspect_ratio_value = "9:16" if str(settings.get("aspect_ratio")) == "vertical" else "16:9"
     request_payload = {
         "model": model,
@@ -5076,11 +5171,13 @@ def run_xai_grok_image_workflow(project: dict[str, Any], group: dict[str, Any], 
         "path": path,
         "url": f"/api/image?path={path}&v={int(out.stat().st_mtime)}",
         "positive_prompt": prompt,
-        "negative_prompt": prompt_bundle.get("negative_prompt", ""),
+        "negative_prompt": apply_no_text_to_prompts("", prompt_bundle.get("negative_prompt", ""), enabled=bool(settings.get("no_text", True))).get("negative_prompt", ""),
         "xai_request": {
             "endpoint": "/images/generations",
             "supported_parameters": ["model", "prompt", "n", "aspect_ratio", "resolution"],
             "dimensions_requested_via_prompt": bool(width and height),
+            "reference_conditioning": "not implemented; prompt/context-based consistency only",
+            "consistency_note": GROK_REFERENCE_LIMITATION_NOTE,
         },
         "created_at": now,
         "updated_at": now,

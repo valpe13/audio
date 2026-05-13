@@ -281,8 +281,13 @@
                     </select>
                   </label>
                   <label class="inlineCheck"><input id="clearXaiApiKey" type="checkbox" /> Очистить ключ проекта</label>
-                  <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Exclude people from generated images</label>
+                  <label class="inlineCheck"><input id="imageExcludePeople" type="checkbox" /> Исключать людей из картинок</label>
+                  <label class="inlineCheck"><input id="imageNoText" type="checkbox" checked /> Запрещать текст, буквы, логотипы и водяные знаки в картинках</label>
+                  <label class="fullSpan">Визуальный контекст проекта
+                    <textarea id="projectVisualContext" rows="4" placeholder="Единый стиль, палитра, эпоха, персонажи/субъекты, одежда, камера, окружение для всех картинок проекта"></textarea>
+                  </label>
                 </div>
+                <p class="videoI2vGrokEnableHint">Grok Images здесь использует только документированные параметры model, prompt, n, aspect_ratio и resolution. Прямые reference-image вызовы для картинок не реализованы: консистентность персонажей/стиля поддерживается через общий контекст проекта/группы и промт.</p>
                 <p id="xaiApiKeyHint" class="xaiApiKeyHint">Grok key: checking…</p>
               </details>
             </details>

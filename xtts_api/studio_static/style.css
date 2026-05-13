@@ -335,6 +335,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.2rem 1.2rem 18rem; }
 }
 
 .grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid .fullSpan, .imageSettingsGrid .fullSpan { grid-column: 1 / -1; }
 .row { display: flex; align-items: center; gap: .7rem; }
 .between { justify-content: space-between; }
 .wrap { flex-wrap: wrap; }
