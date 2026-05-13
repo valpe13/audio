@@ -58,6 +58,7 @@ const state = {
   pollTimer: null,
   taskStatuses: new Map(),
   refreshingChunks: new Set(),
+  pendingChunkSaves: new Map(),
   sequence: { active: false, audio: null, timer: null, stopAudio: null, runId: 0, status: "Stopped" },
   timeline: { cursorSec: 0, durationSec: 0, arrangement: [], userScrubbing: false, draggingPlayhead: false, pixelsPerSecond: Number(localStorage.getItem("xttsStudioPixelsPerSecond") || 96), minWorkspaceWidth: 1600 },
   pauseDrag: { active: false, chunkId: null, pauseAfter: 0 },
@@ -2443,6 +2444,11 @@ function selectedVersionForChunk(chunk) {
   return (chunk.versions || []).find((v) => v.id === chunk.selected_version_id) || (chunk.versions || []).find((v) => v.audio_url) || null;
 }
 
+function versionSnapshotText(version, field) {
+  if (!version) return "";
+  return String(version[field] ?? version.settings?.[field] ?? "");
+}
+
 function selectedAudioUrlForChunk(chunk) {
   const selected = selectedVersionForChunk(chunk);
   return selected?.audio_url || chunk.audio_url || "";
@@ -3804,6 +3810,8 @@ function renderChunkCard(chunk) {
   const selectedAudioUrl = selectedAudioUrlForChunk(chunk);
   const boundary = chunkBoundaryType(chunk);
   const ttsText = chunk.tts_text || chunk.stressed_text || chunk.text || "";
+  const selectedVersionText = versionSnapshotText(selectedVersion, "text");
+  const selectedVersionTtsText = versionSnapshotText(selectedVersion, "tts_text");
   const hasStressedText = Boolean((chunk.stressed_text || chunk.tts_text || "").includes("\u0301"));
   const stressLabel = hasStressedText ? ` · stress: ${escapeHtml(chunk.stress_source || "grok")}` : "";
   const card = document.createElement("article");
@@ -3816,10 +3824,12 @@ function renderChunkCard(chunk) {
       <strong>Chunk ${chunk.order + 1}</strong>
       <span><small class="boundaryBadge">${escapeHtml(boundary)}</small> start ${chunk.start_time || 0}s · selected ${escapeHtml(selectedLabel)} · duration ${chunk.duration_sec || 0}s · pause after ${(chunk.pause_after ?? 0)}s${stressLabel}</span>
     </div>
-    <label class="chunkTtsLabel">TTS text ${hasStressedText ? "<small class=\"stressBadge\">stress marks visible/editable</small>" : "<small>TTS uses this text</small>"}<textarea class="chunkTtsText">${escapeHtml(ttsText)}</textarea></label>
+    <label class="chunkTtsLabel">Chunk text <small>Edit/rewrite this text, then Save or Generate</small><textarea class="chunkText">${escapeHtml(chunk.text || "")}</textarea></label>
+    <label class="chunkTtsLabel">TTS / stress text ${hasStressedText ? "<small class=\"stressBadge\">stress marks visible/editable</small>" : "<small>Optional: only stress/pronunciation variant of chunk text</small>"}<textarea class="chunkTtsText">${escapeHtml(ttsText)}</textarea></label>
     <details class="originalTextDetails">
-      <summary>Original text (kept for reference)</summary>
-      <textarea class="chunkText">${escapeHtml(chunk.text || "")}</textarea>
+      <summary>Selected version text snapshot</summary>
+      <textarea readonly>${escapeHtml(selectedVersionText || chunk.text || "")}</textarea>
+      <textarea readonly>${escapeHtml(selectedVersionTtsText || selectedVersionText || "")}</textarea>
     </details>
     <div class="row wrap">
       <label>Pause after, sec <input class="pauseAfter" type="number" min="0" max="10" step="0.01" value="${clampPauseAfter(chunk.pause_after ?? 0)}" /></label>
@@ -3856,6 +3866,7 @@ function renderChunkCard(chunk) {
           <strong>${escapeHtml(label)} ${isSelected ? "✓ selected" : ""}</strong>
           <small>${Number(v.duration_sec || 0).toFixed(3)}s · ${escapeHtml(formatVersionDate(v.created_at))}</small>
           <small>${escapeHtml(versionSettingsSummary(v))}</small>
+          <small>Text: ${escapeHtml(chunkSummaryText(versionSnapshotText(v, "text") || chunk.text || "", 80))}</small>
         </div>
         ${v.audio_url ? `<audio controls src="${v.audio_url}"></audio>` : `<span class="missingVersion">Missing audio file</span>`}
         <button type="button" class="secondary useVersion" ${isSelected ? "disabled" : ""}>Select</button>
@@ -4149,6 +4160,21 @@ function patchProjectChunk(chunk) {
   state.project.chunks = chunks.sort((a, b) => a.order - b.order);
 }
 
+function chunkSaveSnapshot(payload = {}) {
+  return {
+    text: payload.text === undefined ? undefined : String(payload.text ?? ""),
+    tts_text: payload.tts_text === undefined ? undefined : String(payload.tts_text ?? ""),
+    savedAt: Date.now(),
+  };
+}
+
+function chunkMatchesPendingSave(chunk, pending) {
+  if (!chunk || !pending) return true;
+  if (pending.text !== undefined && String(chunk.text ?? "") !== pending.text) return false;
+  if (pending.tts_text !== undefined && String(chunk.tts_text ?? chunk.stressed_text ?? chunk.text ?? "") !== pending.tts_text) return false;
+  return true;
+}
+
 function patchProjectChunksFromProject(project) {
   const chunks = getChunks(project);
   if (state.project && Array.isArray(chunks)) state.project.chunks = chunks;
@@ -4165,6 +4191,11 @@ async function refreshChunkBlock(chunkId) {
     if (data.timeline_duration_sec !== undefined && state.project) state.project.timeline_duration_sec = data.timeline_duration_sec;
     if (data.status && state.project) state.project.status = data.status;
     if (data.export !== undefined && state.project) state.project.export = data.export;
+    const pending = state.pendingChunkSaves.get(chunkId);
+    if (pending && !chunkMatchesPendingSave(data.chunk, pending)) {
+      console.debug("[XTTS Studio] ignored stale chunk refresh", { chunkId, pending, received: { text: data.chunk?.text, tts_text: data.chunk?.tts_text } });
+      return;
+    }
     patchProjectChunk(data.chunk);
     if (state.screenMode === "chunk" && state.selectedChunkId === data.chunk.id) replaceChunkCard(data.chunk);
     renderTimeline();
@@ -4280,9 +4311,14 @@ function escapeHtml(value) {
 }
 
 async function updateChunk(id, payload) {
+  state.pendingChunkSaves.set(id, chunkSaveSnapshot(payload));
   await saveSettings();
-  state.project = await api(`/api/chunks/${id}${activeProjectQuery()}`, { method: "PATCH", body: JSON.stringify(payload) });
-  render();
+  try {
+    state.project = await api(`/api/chunks/${id}${activeProjectQuery()}`, { method: "PATCH", body: JSON.stringify(payload) });
+    render();
+  } finally {
+    state.pendingChunkSaves.delete(id);
+  }
 }
 
 async function addChunkAfter(chunkId = "") {
@@ -4326,11 +4362,13 @@ async function loadProject({ renderUi = true } = {}) {
 async function generateChunk(id, card) {
   try {
     setStatus("Saving chunk and queueing generation…", true);
-      const payload = {
-        text: card.querySelector(".chunkText")?.value || card.querySelector(".chunkTtsText")?.value || "",
-        tts_text: card.querySelector(".chunkTtsText")?.value || "",
-        pause_after: clampPauseAfter(card.querySelector(".pauseAfter").value),
-      };
+    const chunkText = card.querySelector(".chunkText")?.value || card.querySelector(".chunkTtsText")?.value || "";
+    const rawTtsText = card.querySelector(".chunkTtsText")?.value || "";
+    const payload = {
+      text: chunkText,
+      tts_text: rawTtsText || chunkText,
+      pause_after: clampPauseAfter(card.querySelector(".pauseAfter").value),
+    };
     await updateChunk(id, payload);
     const data = await api(`/api/queue/generate${activeProjectQuery()}`, { method: "POST", body: JSON.stringify({ chunk_ids: [id] }) });
     if (data.project) state.project = data.project;

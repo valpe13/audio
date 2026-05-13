@@ -3602,6 +3602,15 @@ def normalize_chunk_versions(chunk: dict[str, Any]) -> None:
         version.setdefault("duration_sec", 0.0)
         version.setdefault("settings", {})
         version.setdefault("index", idx)
+        settings = version.get("settings") if isinstance(version.get("settings"), dict) else {}
+        if not isinstance(version.get("settings"), dict):
+            version["settings"] = settings
+        text_snapshot = version.get("text") or settings.get("text") or chunk.get("text") or ""
+        tts_snapshot = version.get("tts_text") or settings.get("tts_text") or version.get("stressed_text") or text_snapshot
+        version["text"] = clean_text(text_snapshot)
+        version["tts_text"] = unicodedata.normalize("NFC", str(tts_snapshot or version["text"]))
+        settings.setdefault("text", version["text"])
+        settings.setdefault("tts_text", version["tts_text"])
     selected_id = chunk.get("selected_version_id")
     selected = next((v for v in versions if v.get("id") == selected_id), None)
     if versions and not selected:
@@ -3649,9 +3658,27 @@ def sync_chunk_to_selected_version(chunk: dict[str, Any]) -> None:
     if selected:
         chunk["audio_path"] = selected.get("audio_path", "")
         chunk["duration_sec"] = selected.get("duration_sec", 0.0)
+        version_text = selected.get("text") or selected.get("settings", {}).get("text")
+        version_tts_text = selected.get("tts_text") or selected.get("settings", {}).get("tts_text")
+        if version_text:
+            chunk["text"] = str(version_text)
+        if version_tts_text:
+            chunk["tts_text"] = unicodedata.normalize("NFC", str(version_tts_text))
+            chunk["stressed_text"] = chunk["tts_text"]
+            base_text = str(chunk.get("text") or "")
+            chunk["stress_source"] = "manual" if chunk["tts_text"] != base_text else "original"
     else:
         chunk["audio_path"] = ""
         chunk["duration_sec"] = 0.0
+
+
+def reset_current_chunk_audio_selection(chunk: dict[str, Any]) -> None:
+    """Invalidate the currently selected audio without deleting historical versions."""
+    normalize_chunk_versions(chunk)
+    chunk["audio_path"] = ""
+    chunk["audio_url"] = ""
+    chunk["selected_version_id"] = ""
+    chunk["duration_sec"] = 0.0
 
 
 def enrich_project(project: dict[str, Any]) -> dict[str, Any]:
@@ -5916,6 +5943,8 @@ def generate_silero_chunk(project: dict[str, Any], chunk: dict[str, Any]) -> dic
         "index": next_index,
         "audio_path": rel_path(out),
         "created_at": time.time(),
+        "text": clean_text(chunk.get("text", "")),
+        "tts_text": text_for_tts,
         "settings": {
             "tts_backend": "silero",
             "silero_api_url": base_url,
@@ -5931,6 +5960,7 @@ def generate_silero_chunk(project: dict[str, Any], chunk: dict[str, Any]) -> dic
     }
     versions.append(version)
     chunk["selected_version_id"] = version_id
+    chunk.pop("audio_selection_stale", None)
     chunk["audio_path"] = rel_path(out)
     chunk["generated_at"] = time.time()
     chunk["duration_sec"] = stats["duration_sec"]
@@ -5983,6 +6013,8 @@ def generate_xtts_chunk(project: dict[str, Any], chunk: dict[str, Any]) -> dict[
         "index": next_index,
         "audio_path": rel_path(out),
         "created_at": time.time(),
+        "text": clean_text(chunk.get("text", "")),
+        "tts_text": text_for_tts,
         "settings": {
             "reference_path": settings.get("reference_path", DEFAULT_SETTINGS["reference_path"]),
             "temperature": settings.get("temperature", DEFAULT_SETTINGS["temperature"]),
@@ -6000,6 +6032,7 @@ def generate_xtts_chunk(project: dict[str, Any], chunk: dict[str, Any]) -> dict[
     }
     versions.append(version)
     chunk["selected_version_id"] = version_id
+    chunk.pop("audio_selection_stale", None)
     chunk["audio_path"] = rel_path(out)
     chunk["generated_at"] = time.time()
     chunk["duration_sec"] = stats["duration_sec"]
@@ -8170,6 +8203,7 @@ def select_chunk_version(chunk_id: str, payload: VersionSelect, project_id: str 
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
     chunk["selected_version_id"] = payload.version_id
+    chunk.pop("audio_selection_stale", None)
     sync_chunk_to_selected_version(chunk)
     set_status(project, f"Selected {version.get('label', 'version')} for chunk {chunk.get('order', 0) + 1}")
     return enrich_project(project)
@@ -8268,31 +8302,28 @@ def update_chunk(chunk_id: str, payload: ChunkUpdate, project_id: str | None = Q
     chunk = next((c for c in project["chunks"] if c["id"] == chunk_id), None)
     if not chunk:
         raise HTTPException(status_code=404, detail="Chunk not found")
+    normalize_chunk_versions(chunk)
+    old_text = str(chunk.get("text") or "")
     repaired_text = repair_mojibake_text(payload.text)[0] if payload.text is not None else None
-    if repaired_text is not None and repaired_text != chunk.get("text"):
+    text_changed = repaired_text is not None and repaired_text != old_text
+    if text_changed:
         chunk["text"] = repaired_text
-        if payload.tts_text is None:
-            chunk.pop("tts_text", None)
-            chunk.pop("stressed_text", None)
-            chunk.pop("stress_source", None)
-        chunk["audio_path"] = ""
-        chunk["audio_url"] = ""
-        chunk["versions"] = []
-        chunk["selected_version_id"] = ""
-        chunk["duration_sec"] = 0.0
+        chunk["tts_text"] = unicodedata.normalize("NFC", repaired_text)
+        chunk["stressed_text"] = chunk["tts_text"]
+        chunk["stress_source"] = "original"
+        reset_current_chunk_audio_selection(chunk)
     if payload.tts_text is not None:
         repaired_tts_text = repair_mojibake_text(payload.tts_text)[0]
         base_text = str(chunk.get("text") or "")
         if compact_stress_validation_text(repaired_tts_text) != compact_stress_validation_text(base_text):
-            raise HTTPException(status_code=400, detail="TTS text may only add or remove stress marks; edit Original text to rewrite content")
+            if text_changed and compact_stress_validation_text(repaired_tts_text) == compact_stress_validation_text(old_text):
+                repaired_tts_text = base_text
+            else:
+                raise HTTPException(status_code=400, detail="TTS text may only add or remove stress marks; edit Original text to rewrite content")
         chunk["tts_text"] = unicodedata.normalize("NFC", repaired_tts_text)
         chunk["stressed_text"] = chunk["tts_text"]
         chunk["stress_source"] = "manual" if chunk["tts_text"] != base_text else "original"
-        chunk["audio_path"] = ""
-        chunk["audio_url"] = ""
-        chunk["versions"] = []
-        chunk["selected_version_id"] = ""
-        chunk["duration_sec"] = 0.0
+        reset_current_chunk_audio_selection(chunk)
     if payload.pause_after is not None:
         chunk["pause_after"] = payload.pause_after
     prompt_patch = payload.dict(exclude_unset=True)
