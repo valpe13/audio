@@ -297,7 +297,7 @@
               <details class="settingsSubsection videoI2vSettings">
                 <summary>Video backend and quality</summary>
                 <h4>Анимация видео: SVD-XT, AnimateDiff/HotshotXL, или Grok Imagine Video</h4>
-                <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Для Grok видео модель автоматически: grok-imagine-video. Размер Grok-видео задаётся через Resolution/Aspect ниже; auto aspect follows the source image orientation, not the image pixel Width/Height.</p>
+                <p class="imageResolvedSettings">To use xAI hosted video, choose Workflow / video backend → Grok Imagine Video (xAI API). Это автоматически включает и сохраняет “Enable image-to-video buttons”, потому что сервер не запускает видео без этой явной настройки. Для Grok видео модель автоматически: grok-imagine-video. Размер Grok-видео задаётся через Resolution/Aspect ниже; auto aspect follows the source image orientation, not the image pixel Width/Height.</p>
                 <label class="inlineCheck"><input id="videoI2vEnabled" type="checkbox" checked /> Enable image-to-video buttons</label>
                 <label class="qualitySliderLabel">Video quality
                   <input id="videoI2vQualityPreset" type="range" min="0" max="2" step="1" value="1" />
@@ -322,10 +322,10 @@
                 </label>
                 <label>Workflow / video backend (модель генерации анимации)
                   <select id="videoI2vWorkflowMode">
-                    <option value="generated_svd">SVD/SVD-XT local (generated_svd, stable default)</option>
+                    <option value="generated_svd">SVD/SVD-XT local (generated_svd)</option>
                     <option value="generated_animatediff">AnimateDiff SD1.5 local (generated_animatediff, experimental)</option>
                     <option value="generated_hotshotxl">HotshotXL / AnimateDiff SDXL local (generated_hotshotxl, experimental)</option>
-                    <option value="generated_grok_imagine_video">Grok Imagine Video (xAI API)</option>
+                    <option value="generated_grok_imagine_video" selected>Grok Imagine Video (xAI API, default)</option>
                     <option value="disabled">disabled</option>
                   </select>
                 </label>
@@ -346,7 +346,7 @@
               </details>
               <details id="videoI2vGrokSettings" class="videoI2vGrokSettings">
                 <summary>Grok Imagine Video settings</summary>
-                <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
+                <p id="videoI2vGrokEnableHint" class="videoI2vGrokEnableHint">To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above; the image-to-video gate turns on and persists when settings are saved. Uses the project Grok/xAI API key or XAI_API_KEY.</p>
                 <p class="videoI2vGrokWarning">Hosted xAI image-to-video backend. Queuing generation may make a paid API call. Use diagnostics before bulk generation; this UI never runs generation until you press group video buttons.</p>
                 <div class="grid two imageSettingsGrid">
                   <label>Model <input id="videoI2vGrokModel" type="text" value="grok-imagine-video" /></label>
@@ -413,12 +413,18 @@
         <details class="panel collapsiblePanel">
           <summary><h2>5. Массовые действия</h2></summary>
           <div class="row wrap settingsActions">
+            <button id="generateAllGroupPromptsBtn" type="button" class="secondary">Сгенерировать промты всех групп</button>
+            <button id="generateAllChunkPromptsBtn" type="button" class="secondary">Сгенерировать промты всех чанков</button>
             <button id="queueAllImagesBtn" type="button" class="imageGroupBtn">Поставить все картинки групп в очередь</button>
             <button id="queueAllChunkImagesBtn" type="button" class="imageGroupBtn">Сгенерировать картинки по чанкам всех групп</button>
             <button id="queueAllVideosBtn" type="button" class="videoGroupBtn">Поставить все видео групп в очередь</button>
             <button id="queueAllChunkVideosBtn" type="button" class="videoGroupBtn">Сгенерировать видео по чанкам всех групп</button>
             <button id="addAllSubtitlesBtn" type="button" class="secondary">Субтитры во все группы</button>
             <label class="inlineCheck imageMissingOnly"><input id="imageMissingOnly" type="checkbox" checked /> Только отсутствующие медиа</label>
+            <label>Картинок на чанк <input id="bulkImagesPerChunk" type="number" min="1" max="4" step="1" value="2" /></label>
+            <label>Размер шрифта субтитров <input id="bulkSubtitleFontSize" type="number" min="8" max="160" step="1" value="20" /></label>
+            <label>Слов в блоке субтитров <input id="bulkSubtitleMaxWords" type="number" min="1" max="40" step="1" value="5" /></label>
+            <label class="inlineCheck imageMissingOnly"><input id="promptsMissingOnly" type="checkbox" checked /> Только пустые промты</label>
             <label class="inlineCheck imageMissingOnly"><input id="subtitlesMissingOnly" type="checkbox" checked /> Только где пусто</label>
           </div>
         </details>
@@ -502,7 +508,7 @@
             </label>
           </div>
           <div id="exportGroupList" class="exportGroupList" hidden></div>
-          <p class="imageResolvedSettings">Video export uses existing group videos when present, otherwise group images as still frames, looped/trimmed to group chunk ranges and muxed with the assembled audio. The video speed curve is baked into exported video segments while preserving the assembled audio timeline.</p>
+          <p class="imageResolvedSettings">Video export uses existing group videos when present, otherwise group images as still frames, looped/trimmed to group chunk ranges and muxed with the assembled audio. The main timeline speed curve is baked into exported video segments; constant speed also retimes exported audio.</p>
           <div id="exportResult">No export yet.</div>
         </details>
       </div>
@@ -589,7 +595,7 @@
             <div id="musicTimelineLane" class="timelineLane musicLane musicAutomationLane"></div>
             <div class="laneLabel videoGroupLaneHead"><span>Video groups</span></div>
             <div id="videoGroupLanesHost" class="videoGroupLanesHost"></div>
-            <div class="laneLabel videoGroupLaneHead"><span>Video playback speed</span></div>
+            <div class="laneLabel videoGroupLaneHead"><span>Скорость главного таймлайна</span></div>
             <div id="videoSpeedAutomationLane" class="timelineLane videoSpeedAutomationLane"></div>
           </div>
         </div>
@@ -603,7 +609,7 @@
         </label>
         <span id="automationPointReadout" class="automationPointReadout">Music volume automation</span>
       </div>
-      <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume or video speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
+      <div class="automationHint">Use −/+ or Fit to zoom the timeline; zoom is anchored at the current cursor/playhead where possible. Drag the voice lane to seek. Drag yellow pause regions between chunks to edit pause_after. Click a volume lane or the main timeline speed lane to add a point; Alt/right-click a point to delete it. Delete removes a selected music clip, or the selected music lane when no clip is selected. Each imported file has its own lane with independent Vol, flat/resettable lane curve, and loop. Drag sources onto the right-hand timeline part of a lane to create clips at exact timeline positions; gaps are timeline spacing.</div>
     </div>
 
     <script src="/studio/settings_helpers.js?v=2026-05-13-xtts-studio-refinements"></script>

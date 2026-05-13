@@ -4,7 +4,7 @@ window.XTTSStudio = window.XTTSStudio || {};
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
   const uuid = () => crypto.randomUUID?.() || `subtitle_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const DEFAULTS = { position: "bottom", font_family: "Arial", font_size: 42, color: "#ffffff", background: "#000000", background_opacity: 0.45, outline: 2, max_words: 7, word_offset_sec: 0 };
+  const DEFAULTS = { position: "bottom", font_family: "Arial", font_size: 20, color: "#ffffff", background: "#000000", background_opacity: 0.45, outline: 2, max_words: 5, word_offset_sec: 0 };
 
   function defaults(raw = {}) { return normalizeStyle({ ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) }); }
 

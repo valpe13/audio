@@ -285,13 +285,15 @@ function settingsPayload() {
   const quality = selectedImageQualityPreset();
   const videoQuality = selectedVideoI2vQualityPreset();
   const aspect = $("imageAspectRatio")?.value || "vertical";
+  const videoWorkflowMode = $("videoI2vWorkflowMode")?.value || "generated_grok_imagine_video";
+  const videoEnabled = videoWorkflowMode === "generated_grok_imagine_video" ? true : Boolean($("videoI2vEnabled")?.checked);
   const resolved = resolvedImagePreset(quality, aspect);
   const videoResolved = resolvedVideoI2vPreset(videoQuality);
   const imageProviderModel = window.XTTSStudio?.SettingsHelpers?.normalizeImageProviderModel?.(
-    $("imageProvider")?.value || state.project?.settings?.image_provider || "comfyui",
-    $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl",
+    $("imageProvider")?.value || state.project?.settings?.image_provider || "grok",
+    $("imageModel")?.value || state.project?.settings?.image_model || "grok",
     { preferProvider: true },
-  ) || { provider: $("imageProvider")?.value || "comfyui", model: $("imageModel")?.value || "realvisxl" };
+  ) || { provider: $("imageProvider")?.value || "grok", model: $("imageModel")?.value || "grok" };
   const payload = {
     reference_path: trimmedFieldValue("referencePath"),
     music_path: trimmedFieldValue("musicPath"),
@@ -323,10 +325,10 @@ function settingsPayload() {
     image_no_text: Boolean($("imageNoText")?.checked ?? true),
     project_visual_context: $("projectVisualContext")?.value?.trim() || "",
     image_seed: Number($("imageSeed")?.value || 0),
-    video_i2v_enabled: Boolean($("videoI2vEnabled")?.checked),
+    video_i2v_enabled: videoEnabled,
     video_i2v_quality_preset: videoQuality,
     video_i2v_motion_style: selectedVideoI2vMotionStyle(),
-    video_i2v_workflow_mode: $("videoI2vWorkflowMode")?.value || "generated_svd",
+    video_i2v_workflow_mode: videoWorkflowMode,
     video_i2v_model_checkpoint: $("videoI2vModelCheckpoint")?.value?.trim() || SVD_XT_CHECKPOINT,
     video_i2v_grok_model: $("videoI2vGrokModel")?.value?.trim() || "grok-imagine-video",
     video_i2v_grok_duration_sec: clamp($("videoI2vGrokDurationSec")?.value || 5, 1, 30),
@@ -403,8 +405,8 @@ function updateResolvedImageSettingsHint() {
   const aspect = $("imageAspectRatio")?.value || state.project?.settings?.image_aspect_ratio || "vertical";
   const resolved = resolvedImagePreset(undefined, aspect);
   const hint = $("imageResolvedSettings");
-  const provider = $("imageProvider")?.value || state.project?.settings?.image_provider || "comfyui";
-  const model = $("imageModel")?.value || state.project?.settings?.image_model || "realvisxl";
+  const provider = $("imageProvider")?.value || state.project?.settings?.image_provider || "grok";
+  const model = $("imageModel")?.value || state.project?.settings?.image_model || "grok";
   const isGrok = [provider, model].some((value) => String(value || "").toLowerCase() === "grok");
   if (hint) hint.textContent = isGrok
     ? `Grok/xAI · ${window.XTTSStudio?.SettingsHelpers?.normalizeGrokImageModel?.($("imageGrokModel")?.value) || GROK_IMAGE_MODEL} · ${resolved.label} · aspect ${aspect === "horizontal" ? "16:9" : "9:16"} from ${resolved.width}×${resolved.height} · resolution ${$("imageGrokResolution")?.value || "1k"}`
@@ -467,8 +469,10 @@ function setVideoI2vQualityPreset(quality, { updateFields = true } = {}) {
   if (updateFields) updateResolvedVideoI2vSettingsHint();
 }
 
-function syncGrokImagineVideoSettingsUi(workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_svd") {
+function syncGrokImagineVideoSettingsUi(workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_grok_imagine_video") {
   const selected = workflowMode === "generated_grok_imagine_video";
+  const enableToggle = $("videoI2vEnabled");
+  if (selected && enableToggle && !enableToggle.checked) enableToggle.checked = true;
   const panel = $("videoI2vGrokSettings");
   if (panel) {
     panel.classList.toggle("active", selected);
@@ -481,13 +485,13 @@ function syncGrokImagineVideoSettingsUi(workflowMode = $("videoI2vWorkflowMode")
   }
   const hint = $("videoI2vGrokEnableHint");
   if (hint) hint.textContent = selected
-    ? "Grok Imagine Video is selected. Save settings, then use group video buttons to queue hosted xAI generation. Downloaded clips are ffmpeg loop-processed by default."
-    : "To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above, then Save settings. Uses the project Grok/xAI API key or XAI_API_KEY.";
+    ? "Grok Imagine Video is selected; the image-to-video enable gate is on and will be saved with settings. Use group/chunk video buttons only when the project Grok/xAI key is configured."
+    : "To enable: select “Grok Imagine Video (xAI API)” in the Workflow / video backend dropdown above. The image-to-video enable gate will be turned on and saved automatically for Grok.";
 }
 
 function updateResolvedVideoI2vSettingsHint() {
   const resolved = resolvedVideoI2vPreset();
-  const workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_svd";
+  const workflowMode = $("videoI2vWorkflowMode")?.value || state.project?.settings?.video_i2v_workflow_mode || "generated_grok_imagine_video";
   const backend = videoBackendLabel(workflowMode);
   const grokResolution = $("videoI2vGrokResolution")?.value || state.project?.settings?.video_i2v_grok_resolution || GROK_IMAGINE_VIDEO_RESOLUTION_PRESETS[resolved.quality] || "480p";
   const grokDuration = clamp($("videoI2vGrokDurationSec")?.value || state.project?.settings?.video_i2v_grok_duration_sec || 5, 1, 30);
@@ -654,7 +658,11 @@ function voiceArrangement() {
 
 function videoArrangement() {
   const video = state.project?.arrangement?.video || {};
-  return { ...video, speed_envelope: Array.isArray(video.speed_envelope) ? video.speed_envelope : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }] };
+  const arrangement = state.project?.arrangement || {};
+  const speedEnvelope = Array.isArray(arrangement.main_timeline_speed_envelope)
+    ? arrangement.main_timeline_speed_envelope
+    : Array.isArray(video.speed_envelope) ? video.speed_envelope : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
+  return { ...video, speed_envelope: speedEnvelope, main_timeline_speed_envelope: speedEnvelope };
 }
 
 function normalizeGroupMediaItems(group) {
@@ -669,6 +677,7 @@ function normalizeGroupMediaItems(group) {
   addLegacy(group?.video, "video", "Generated video");
   return items.map((item, index) => ({
     id: item.id || `media_${Date.now()}_${index}`,
+    source_id: item.source_id || "",
     type: ["image", "video"].includes(item.type) ? item.type : (String(item.path || item.url || "").match(/\.(mp4|webm|gif|mov)$/i) ? "video" : "image"),
     path: item.path || "",
     url: item.url || "",
@@ -679,8 +688,44 @@ function normalizeGroupMediaItems(group) {
     scheduled: item.scheduled !== false,
     fit: ["cover", "contain", "fill"].includes(item.fit) ? item.fit : "cover",
     volume: item.volume === undefined || item.volume === null ? undefined : clamp(item.volume, 0, 2),
+    source: item.source || "",
+    kind: item.kind || (item.scheduled === false ? "media_asset" : "timeline_block"),
+    timeline_source: item.timeline_source || "",
+    auto_sequence_id: item.auto_sequence_id || "",
+    chunk_id: item.chunk_id || "",
+    prompt_scope: item.prompt_scope || "",
+    prompt_source: item.prompt_source || "",
+    provider: item.provider || "",
+    model: item.model || "",
+    positive_prompt: item.positive_prompt || "",
+    negative_prompt: item.negative_prompt || "",
+    created_at: item.created_at,
     order: index,
   }));
+}
+
+function unscheduleGroupMediaRow(row) {
+  if (!row) return false;
+  const scheduledBox = row.querySelector(`[data-media-field='scheduled']`);
+  const isScheduled = Boolean(scheduledBox && !scheduledBox.disabled && scheduledBox.checked);
+  if (!isScheduled) {
+    row.remove();
+    return true;
+  }
+  row.dataset.timelineSource = "";
+  ["timeline_source", "auto_sequence_id", "chunk_id", "prompt_scope"].forEach((field) => {
+    const input = row.querySelector(`[data-media-field='${field}']`);
+    if (input) input.value = "";
+  });
+  const start = row.querySelector(`[data-media-field='start_offset_sec']`);
+  const duration = row.querySelector(`[data-media-field='duration_sec']`);
+  if (start) start.value = "0.00";
+  if (duration) duration.value = "0.00";
+  if (scheduledBox) {
+    scheduledBox.checked = false;
+    scheduledBox.disabled = true;
+  }
+  return true;
 }
 
 function groupChunkTimelineItems(group) {
@@ -723,6 +768,41 @@ function applyPreviewVideoPlaybackRate() {
   const previewVideo = $("previewVideo");
   if (!previewVideo) return;
   previewVideo.playbackRate = clamp(videoSpeedAt(state.timeline.cursorSec), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+}
+
+function speedClockDelta(t0, t1) {
+  if (t1 <= t0) return 0;
+  const points = effectiveVideoSpeedEnvelope();
+  const cuts = [t0, t1];
+  points.forEach((point) => { if (point.time > t0 && point.time < t1) cuts.push(point.time); });
+  cuts.sort((a, b) => a - b);
+  let out = 0;
+  for (let i = 0; i < cuts.length - 1; i += 1) {
+    const a = cuts[i];
+    const b = cuts[i + 1];
+    out += (b - a) / Math.max(VIDEO_SPEED_MIN, videoSpeedAt((a + b) / 2));
+  }
+  return out;
+}
+
+function realtimeFromTimelineDelta(startTimeline, endTimeline) {
+  return speedClockDelta(Math.max(0, startTimeline), Math.max(0, endTimeline));
+}
+
+function timelineFromRealtimeDelta(startTimeline, realtimeDelta) {
+  let remaining = Math.max(0, realtimeDelta);
+  let cursor = Math.max(0, startTimeline);
+  const duration = state.timeline.durationSec || 0;
+  while (remaining > 0.0001 && cursor < duration) {
+    const nextPoint = effectiveVideoSpeedEnvelope().find((point) => point.time > cursor + 0.0001)?.time ?? duration;
+    const speed = Math.max(VIDEO_SPEED_MIN, videoSpeedAt(cursor + 0.001));
+    const timelineSpan = Math.max(0, nextPoint - cursor);
+    const realtimeSpan = timelineSpan / speed;
+    if (remaining <= realtimeSpan) return Math.min(duration, cursor + remaining * speed);
+    cursor = nextPoint;
+    remaining -= realtimeSpan;
+  }
+  return Math.min(duration, cursor);
 }
 
 function persistedEnvelope(target = "music") {
@@ -858,31 +938,38 @@ async function saveVoiceArrangement(patch = {}) {
 async function saveVideoArrangement(patch = {}) {
   const payload = patch && typeof patch === "object" ? { ...patch } : {};
   state.project = await api(`/api/project/arrangement/video${activeProjectQuery()}`, { method: "POST", body: JSON.stringify(payload) });
-  if (patch.speed_envelope) setStatus("Video speed automation saved");
+  if (patch.speed_envelope || patch.main_timeline_speed_envelope) setStatus("Кривая скорости главного таймлайна сохранена");
   render();
 }
 
 function renderSettings() {
   const p = state.project;
-  if (document.activeElement !== $("fullText")) $("fullText").value = p.full_text || "";
-  $("referencePath").value = p.settings.reference_path || "";
-  $("musicPath").value = p.settings.music_path || "";
-  $("voiceVolume").value = p.settings.voice_volume ?? 1;
-  $("musicVolume").value = p.settings.music_volume ?? 0.18;
-  $("voiceVolumeValue").textContent = Number($("voiceVolume").value).toFixed(2);
-  $("musicVolumeValue").textContent = Number($("musicVolume").value).toFixed(2);
+  const setIfPresent = (id, value) => {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = value;
+    return el;
+  };
+  const setTextIfPresent = (id, value) => {
+    const el = $(id);
+    if (el) el.textContent = value;
+    return el;
+  };
+  setIfPresent("fullText", p.full_text || "");
+  setIfPresent("referencePath", p.settings.reference_path || "");
+  setIfPresent("musicPath", p.settings.music_path || "");
+  const voiceVolume = setIfPresent("voiceVolume", p.settings.voice_volume ?? 1);
+  const musicVolume = setIfPresent("musicVolume", p.settings.music_volume ?? 0.18);
+  setTextIfPresent("voiceVolumeValue", Number(voiceVolume?.value ?? p.settings.voice_volume ?? 1).toFixed(2));
+  setTextIfPresent("musicVolumeValue", Number(musicVolume?.value ?? p.settings.music_volume ?? 0.18).toFixed(2));
   const transportMusic = $("transportMusicVolume");
   if (transportMusic && document.activeElement !== transportMusic) {
     transportMusic.value = p.settings.music_volume ?? 0.18;
-    $("transportMusicVolumeValue").textContent = Number(transportMusic.value).toFixed(2);
+    setTextIfPresent("transportMusicVolumeValue", Number(transportMusic.value).toFixed(2));
   }
   const musicMode = $("musicMode");
   if (musicMode) musicMode.value = musicArrangement().mode;
-  const imageDefaults = { image_provider: "comfyui", image_model: "realvisxl", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 1080, image_height: 1920, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_no_text: true, project_visual_context: "", image_seed: 0, video_i2v_enabled: false, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_svd", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
-  const setIfNotFocused = (id, value) => {
-    const el = $(id);
-    if (el && document.activeElement !== el) el.value = value;
-  };
+  const imageDefaults = { image_provider: "grok", image_model: "grok", image_grok_model: GROK_IMAGE_MODEL, image_grok_resolution: "1k", image_quality_preset: "balanced", image_aspect_ratio: "vertical", image_width: 1080, image_height: 1920, image_style_preset: "sleep_documentary", image_comfyui_url: "http://127.0.0.1:8188", image_comfyui_path: "ComfyUI_windows_portable", image_comfyui_python: "", image_comfyui_launch_cmd: "", image_comfyui_autostart: false, image_workflow_mode: "generated", image_workflow_path: "", image_model_checkpoint: REALVISXL_CHECKPOINT, image_steps: 22, image_cfg: 6.0, image_sampler: "dpmpp_2m_sde", image_scheduler: "karras", image_negative_preset: "default", image_exclude_people: false, image_no_text: true, project_visual_context: "", image_seed: 0, video_i2v_enabled: true, video_i2v_quality_preset: "balanced", video_i2v_motion_style: "ambient_nature", video_i2v_workflow_mode: "generated_grok_imagine_video", video_i2v_model_checkpoint: SVD_XT_CHECKPOINT, video_i2v_grok_model: "grok-imagine-video", video_i2v_grok_duration_sec: 5, video_i2v_grok_resolution: "480p", video_i2v_grok_aspect_ratio_mode: "auto", video_i2v_grok_loop_postprocess: "pingpong", video_i2v_grok_crossfade_sec: 0.5, video_i2v_frames: 25, video_i2v_fps: 6, video_i2v_motion_bucket_id: 72, video_i2v_augmentation_level: 0.005, video_i2v_min_cfg: 1.0, video_i2v_cfg: 2.0, video_i2v_steps: 20, video_i2v_sampler: "euler", video_i2v_scheduler: "normal", video_i2v_pingpong: true, video_i2v_target_duration_sec: 20, video_i2v_preview_playback_rate: 1, tts_backend: "xtts", tts_pronunciation_preprocess_enabled: true, tts_pronunciation_dictionary_path: "xtts_api/pronunciation_dictionary.json", tts_stress_mark_style: "acute", silero_api_url: "http://127.0.0.1:7866", silero_speaker: "baya", silero_sample_rate: 48000, silero_realism_enabled: true, silero_realism_preset: "sleep_safe", ai_add_russian_stress_marks: false, ai_stress_model: "" };
+  const setIfNotFocused = setIfPresent;
   setIfNotFocused("imageProvider", p.settings.image_provider ?? imageDefaults.image_provider);
   setIfNotFocused("imageModel", p.settings.image_model ?? imageDefaults.image_model);
   setIfNotFocused("imageGrokModel", window.XTTSStudio?.SettingsHelpers?.normalizeGrokImageModel?.(p.settings.image_grok_model ?? imageDefaults.image_grok_model) || GROK_IMAGE_MODEL);
@@ -1625,12 +1712,12 @@ function groupSubtitleSectionHtml(group) {
       <div class="grid two imageSettingsGrid groupSubtitleDefaults">
         <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
         <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label>
-        <label>Размер <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 42)}" /></label>
+        <label>Размер шрифта вертикальных субтитров <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 20)}" /></label>
         <label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label>
         <label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label>
         <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /><small class="subtitleOpacityHint">0 = без фона / прозрачно</small></label>
         <label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
-        <label>Макс. слов <input type="number" min="1" max="40" step="1" data-subtitle-default="max_words" value="${Number(defaults.max_words || 7)}" /><small class="subtitleOpacityHint">Слова появляются постепенно; после лимита строка очищается.</small></label>
+        <label>Слов в блоке/строке <input type="number" min="1" max="40" step="1" data-subtitle-default="max_words" value="${Number(defaults.max_words || 5)}" /><small class="subtitleOpacityHint">По умолчанию для вертикального видео: 5 слов; после лимита строка очищается.</small></label>
         <label>Сдвиг слов, сек <input type="number" min="-5" max="5" step="0.05" data-subtitle-default="word_offset_sec" value="${Number(defaults.word_offset_sec ?? 0).toFixed(2)}" /><small class="subtitleOpacityHint">− позже диктора, 0 по таймингу, + раньше диктора</small></label>
       </div>
       <div class="groupSubtitleBlocks"></div>
@@ -1857,13 +1944,13 @@ function updateAutomationCursorReadout(point = null) {
   const target = state.envelope.target || "music";
   if (state.videoSpeed.selectedIndex >= 0) {
     const speedPoint = persistedVideoSpeedEnvelope()[state.videoSpeed.selectedIndex] || { time: state.timeline.cursorSec, speed: videoSpeedAt(state.timeline.cursorSec) };
-    el.textContent = `Video speed point selected · ${formatTime(speedPoint.time)} · ${speedPoint.speed.toFixed(2)}× · default ${VIDEO_SPEED_DEFAULT.toFixed(2)}×`;
+    el.textContent = `Точка скорости главного таймлайна · ${formatTime(speedPoint.time)} · ${speedPoint.speed.toFixed(2)}× · базовая ${VIDEO_SPEED_DEFAULT.toFixed(2)}×`;
     return;
   }
   const value = point || { time: state.timeline.cursorSec, volume: envelopeValueAt(target, state.timeline.cursorSec) };
   const label = envelopeTargetLabel(target);
   const selected = state.envelope.selectedIndex >= 0 ? `${label} point selected` : "Volume automation";
-  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · video speed ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · music gain = master curve × lane curve × lane base × clip`;
+  el.textContent = `${selected} · ${formatTime(value.time)} · vol ${value.volume.toFixed(2)} · скорость таймлайна ${videoSpeedAt(state.timeline.cursorSec).toFixed(2)}× · music gain = master curve × lane curve × lane base × clip`;
 }
 
 function renderMusicClipBlock(track, leftPx, widthPx, looped = false, index = 0, repeated = false, lane = null) {
@@ -2296,10 +2383,11 @@ function setLocalVideoSpeedEnvelope(points) {
   state.project.arrangement = state.project.arrangement || {};
   state.project.arrangement.video = state.project.arrangement.video || {};
   state.project.arrangement.video.speed_envelope = points;
+  state.project.arrangement.main_timeline_speed_envelope = points;
 }
 
 function saveVideoSpeedEnvelope(points) {
-  return saveVideoArrangement({ speed_envelope: points });
+  return saveVideoArrangement({ main_timeline_speed_envelope: points, speed_envelope: points });
 }
 
 function beginVideoSpeedDrag(event) {
@@ -2328,7 +2416,7 @@ function beginVideoSpeedDrag(event) {
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
-    saveVideoSpeedEnvelope(persistedVideoSpeedEnvelope()).catch((err) => setStatus(`Video speed save failed: ${err.message}`));
+    saveVideoSpeedEnvelope(persistedVideoSpeedEnvelope()).catch((err) => setStatus(`Не удалось сохранить скорость таймлайна: ${err.message}`));
   };
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp, { once: true });
@@ -2338,7 +2426,7 @@ function deleteVideoSpeedPoint(index = state.videoSpeed.selectedIndex) {
   const remaining = persistedVideoSpeedEnvelope().filter((_, i) => i !== index);
   const points = remaining.length ? remaining : [{ time: 0, speed: VIDEO_SPEED_DEFAULT }];
   state.videoSpeed.selectedIndex = -1;
-  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Video speed delete failed: ${err.message}`));
+  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Не удалось удалить точку скорости таймлайна: ${err.message}`));
 }
 
 function addVideoSpeedPoint(event) {
@@ -2347,7 +2435,7 @@ function addVideoSpeedPoint(event) {
   state.envelope.selectedIndex = -1;
   state.videoSpeed.selectedIndex = points.findIndex((p) => p === point);
   updateAutomationCursorReadout();
-  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Video speed save failed: ${err.message}`));
+  saveVideoSpeedEnvelope(points).catch((err) => setStatus(`Не удалось сохранить скорость таймлайна: ${err.message}`));
 }
 
 function deleteEnvelopePoint(target = state.envelope.target || "music", index = state.envelope.selectedIndex) {
@@ -2792,21 +2880,35 @@ function addGroupMediaRow(card, sourceItem = {}, groupDuration = 1) {
   row.className = "groupMediaItem";
   row.dataset.mediaId = sourceItem.id || `media_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   row.dataset.sourceId = sourceItem.source_id || sourceItem.asset_id || "";
+  row.dataset.timelineSource = sourceItem.timeline_source || "";
+  row.dataset.autoSequenceId = sourceItem.auto_sequence_id || "";
+  row.dataset.chunkId = sourceItem.chunk_id || "";
+  row.dataset.promptScope = sourceItem.prompt_scope || "";
   const duration = clamp(sourceItem.duration_sec || sourceItem.visual_duration_sec || sourceItem.default_duration_sec || Math.min(5, Math.max(0.5, groupDuration || 5)), 0.1, 36000);
   const scheduled = sourceItem.scheduled === true;
   row.innerHTML = `
     <label>Тип <select data-media-field="type"><option value="image" ${sourceItem.type !== "video" ? "selected" : ""}>картинка</option><option value="video" ${sourceItem.type === "video" ? "selected" : ""}>видео</option></select></label>
     <input type="hidden" data-media-field="source_id" value="${escapeHtml(sourceItem.source_id || sourceItem.asset_id || "")}" />
+    <input type="hidden" data-media-field="source" value="${escapeHtml(sourceItem.source || "")}" />
+    <input type="hidden" data-media-field="timeline_source" value="${escapeHtml(sourceItem.timeline_source || "")}" />
+    <input type="hidden" data-media-field="auto_sequence_id" value="${escapeHtml(sourceItem.auto_sequence_id || "")}" />
+    <input type="hidden" data-media-field="chunk_id" value="${escapeHtml(sourceItem.chunk_id || "")}" />
+    <input type="hidden" data-media-field="prompt_scope" value="${escapeHtml(sourceItem.prompt_scope || "")}" />
+    <input type="hidden" data-media-field="prompt_source" value="${escapeHtml(sourceItem.prompt_source || "")}" />
+    <input type="hidden" data-media-field="provider" value="${escapeHtml(sourceItem.provider || "")}" />
+    <input type="hidden" data-media-field="model" value="${escapeHtml(sourceItem.model || "")}" />
+    <input type="hidden" data-media-field="positive_prompt" value="${escapeHtml(sourceItem.positive_prompt || "")}" />
+    <input type="hidden" data-media-field="negative_prompt" value="${escapeHtml(sourceItem.negative_prompt || "")}" />
     <label>Путь/URL <input type="text" data-media-field="path" value="${escapeHtml(rawPath)}" /></label>
     <label>Название <input type="text" data-media-field="label" value="${escapeHtml(sourceItem.label || shortPath(rawPath) || "Медиа")}" /></label>
     <label>Роль <input type="text" data-media-field="role" value="${escapeHtml(sourceItem.role || "main")}" /></label>
     <label>Старт <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(sourceItem.start_offset_sec || 0).toFixed(2)}" /></label>
     <label>Длительность <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(duration).toFixed(2)}" /></label>
-    <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${scheduled ? "checked" : ""} /></label>
+    <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${scheduled ? "checked" : "disabled"} /></label>
     <label>Fit <select data-media-field="fit"><option value="cover" ${sourceItem.fit !== "contain" && sourceItem.fit !== "fill" ? "selected" : ""}>cover</option><option value="contain" ${sourceItem.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${sourceItem.fit === "fill" ? "selected" : ""}>fill</option></select></label>
     <button type="button" class="secondary deleteGroupMediaBtn">Удалить блок</button>
   `;
-  row.querySelector(".deleteGroupMediaBtn").onclick = () => row.remove();
+  row.querySelector(".deleteGroupMediaBtn").onclick = () => unscheduleGroupMediaRow(row);
   list.appendChild(row);
   return row;
 }
@@ -2947,12 +3049,22 @@ function renderGroupDetail(group, { force = false } = {}) {
     <div class="groupMediaItem" data-media-index="${index}" data-media-id="${escapeHtml(item.id || `media_${index}`)}">
       <label>Тип <select data-media-field="type"><option value="image" ${item.type === "image" ? "selected" : ""}>картинка</option><option value="video" ${item.type === "video" ? "selected" : ""}>видео</option></select></label>
       <input type="hidden" data-media-field="source_id" value="${escapeHtml(item.source_id || "")}" />
+      <input type="hidden" data-media-field="source" value="${escapeHtml(item.source || "")}" />
+      <input type="hidden" data-media-field="timeline_source" value="${escapeHtml(item.timeline_source || "")}" />
+      <input type="hidden" data-media-field="auto_sequence_id" value="${escapeHtml(item.auto_sequence_id || "")}" />
+      <input type="hidden" data-media-field="chunk_id" value="${escapeHtml(item.chunk_id || "")}" />
+      <input type="hidden" data-media-field="prompt_scope" value="${escapeHtml(item.prompt_scope || "")}" />
+      <input type="hidden" data-media-field="prompt_source" value="${escapeHtml(item.prompt_source || "")}" />
+      <input type="hidden" data-media-field="provider" value="${escapeHtml(item.provider || "")}" />
+      <input type="hidden" data-media-field="model" value="${escapeHtml(item.model || "")}" />
+      <input type="hidden" data-media-field="positive_prompt" value="${escapeHtml(item.positive_prompt || "")}" />
+      <input type="hidden" data-media-field="negative_prompt" value="${escapeHtml(item.negative_prompt || "")}" />
       <label>Путь/URL <input type="text" data-media-field="path" value="${escapeHtml(item.path || item.url || "")}" /></label>
       <label>Название <input type="text" data-media-field="label" value="${escapeHtml(item.label || "")}" /></label>
       <label>Роль <input type="text" data-media-field="role" value="${escapeHtml(item.role || "main")}" /></label>
       <label>Старт <input type="number" min="0" step="0.05" data-media-field="start_offset_sec" value="${Number(item.start_offset_sec || 0).toFixed(2)}" /></label>
       <label>Длительность <input type="number" min="0" step="0.05" data-media-field="duration_sec" value="${Number(item.duration_sec || 0).toFixed(2)}" /></label>
-      <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${item.scheduled !== false ? "checked" : ""} /></label>
+      <label class="inlineCheck">Таймлайн <input type="checkbox" data-media-field="scheduled" ${item.scheduled !== false ? "checked" : "disabled"} /></label>
       <label>Fit <select data-media-field="fit"><option value="cover" ${item.fit === "cover" ? "selected" : ""}>cover</option><option value="contain" ${item.fit === "contain" ? "selected" : ""}>contain</option><option value="fill" ${item.fit === "fill" ? "selected" : ""}>fill</option></select></label>
       <button type="button" class="secondary deleteGroupMediaBtn">Удалить блок</button>
     </div>
@@ -3030,7 +3142,7 @@ function renderGroupDetail(group, { force = false } = {}) {
   card.querySelector(".addGroupMediaBtn")?.addEventListener("click", () => addGroupMediaItem(group.id));
   card.querySelectorAll(".deleteGroupMediaBtn").forEach((button) => button.onclick = (event) => {
     event.preventDefault();
-    button.closest(".groupMediaItem")?.remove();
+    unscheduleGroupMediaRow(button.closest(".groupMediaItem"));
   });
   if (savePromptsButton) savePromptsButton.onclick = () => saveGroupPrompts(group.id, card);
   else console.warn("Group prompt save button missing", { groupId: group.id });
@@ -3047,7 +3159,7 @@ function renderGroupDetail(group, { force = false } = {}) {
 function groupSubtitleDefaultsFromCard(card) {
   const value = (field) => card.querySelector(`[data-subtitle-default='${field}']`)?.value || "";
   const opacityValue = value("background_opacity");
-  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 42), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2), max_words: Number(value("max_words") || 7), word_offset_sec: Number(value("word_offset_sec") || 0) }) || {};
+  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 20), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2), max_words: Number(value("max_words") || 5), word_offset_sec: Number(value("word_offset_sec") || 0) }) || {};
 }
 
 function renderGroupSubtitleEditor(card, group) {
@@ -3209,7 +3321,7 @@ async function saveGroupPrompts(groupId, card) {
     const item = {
       id: row.dataset.mediaId || undefined,
       source_id: value("source_id") || row.dataset.sourceId || "",
-      kind: row.querySelector(`[data-media-field='scheduled']`)?.checked !== false ? "timeline_block" : "media_asset",
+      kind: (() => { const scheduledBox = row.querySelector(`[data-media-field='scheduled']`); return scheduledBox && !scheduledBox.disabled && scheduledBox.checked ? "timeline_block" : "media_asset"; })(),
       type: value("type") || "image",
       path: /^https?:\/\//i.test(pathOrUrl) ? "" : pathOrUrl,
       url: /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : "",
@@ -3217,9 +3329,13 @@ async function saveGroupPrompts(groupId, card) {
       role: value("role") || "main",
       start_offset_sec: Number(value("start_offset_sec") || 0),
       duration_sec: Number(value("duration_sec") || 0),
-      scheduled: row.querySelector(`[data-media-field='scheduled']`)?.checked !== false,
+      scheduled: (() => { const scheduledBox = row.querySelector(`[data-media-field='scheduled']`); return Boolean(scheduledBox && !scheduledBox.disabled && scheduledBox.checked); })(),
       fit: value("fit") || "cover",
     };
+    ["source", "timeline_source", "auto_sequence_id", "chunk_id", "prompt_scope", "prompt_source", "provider", "model", "positive_prompt", "negative_prompt"].forEach((key) => {
+      const metaValue = value(key) || row.dataset[key.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase())] || "";
+      if (metaValue) item[key] = metaValue;
+    });
     return item;
   });
   try {
@@ -3270,6 +3386,34 @@ async function generateChunkPrompts(groupId) {
   } catch (err) { setStatus(`Генерация промтов чанков не удалась: ${err.message}`); }
 }
 
+async function generateAllGroupPrompts() {
+  try {
+    const missingOnly = $("promptsMissingOnly")?.checked !== false;
+    setStatus("Генерируем промты всех групп…", true);
+    const data = await api(`/api/project/groups/prompts${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly }),
+    });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus(`Промты групп сгенерированы: ${data.updated_count || 0}, пропущено: ${data.skipped_count || 0}`);
+  } catch (err) { setStatus(`Генерация промтов всех групп не удалась: ${err.message}`); }
+}
+
+async function generateAllChunkPrompts() {
+  try {
+    const missingOnly = $("promptsMissingOnly")?.checked !== false;
+    setStatus("Генерируем промты всех чанков…", true);
+    const data = await api(`/api/project/groups/chunk-prompts${activeProjectQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ missing_only: missingOnly }),
+    });
+    if (data.project) state.project = data.project;
+    render();
+    setStatus(`Промты чанков сгенерированы: ${data.updated_count || 0}, групп обработано: ${data.group_count || 0}, пропущено: ${data.skipped_count || 0}`);
+  } catch (err) { setStatus(`Генерация промтов всех чанков не удалась: ${err.message}`); }
+}
+
 async function enqueueChunkImage(groupId, chunkId) {
   if (!groupId || !chunkId) return;
   try {
@@ -3295,7 +3439,7 @@ async function enqueueGroupChunkImages(groupId) {
     setStatus("Ставим картинки чанков группы в очередь…", true);
     const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-images${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ missing_only: true, force: false, replace: false }),
+      body: JSON.stringify({ missing_only: true, force: false, replace: false, images_per_chunk: 2 }),
     });
     if (data.project) state.project = data.project;
     state.queue = data.queue || state.queue;
@@ -3331,7 +3475,7 @@ async function enqueueGroupChunkVideos(groupId) {
     setStatus("Ставим видео чанков группы в очередь…", true);
     const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/chunk-videos${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ missing_only: true, force: false, replace: false }),
+      body: JSON.stringify({ missing_only: true, force: false, replace: false, images_per_chunk: 2 }),
     });
     if (data.project) state.project = data.project;
     state.queue = data.queue || state.queue;
@@ -3349,7 +3493,7 @@ async function enqueueAllChunkImages() {
     setStatus("Ставим картинки чанков всех групп в очередь…", true);
     const data = await api(`/api/project/groups/chunk-images${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ missing_only: missingOnly, force: false, replace: false }),
+      body: JSON.stringify({ missing_only: missingOnly, force: false, replace: false, images_per_chunk: Math.max(1, Math.min(4, Number($("bulkImagesPerChunk")?.value || 2) || 2)) }),
     });
     if (data.project) state.project = data.project;
     state.queue = data.queue || state.queue;
@@ -3390,7 +3534,7 @@ function deleteSelectedGroupMedia() {
   const card = document.querySelector(".groupDetailCard");
   const row = card?.querySelector?.(`.groupMediaItem[data-media-id="${CSS.escape(state.groupMedia.selectedId)}"]`);
   if (!row) return false;
-  row.remove();
+  unscheduleGroupMediaRow(row);
   const group = selectedGroup();
   if (group) saveGroupPrompts(group.id, card).catch((err) => setStatus(`Delete group media failed: ${err.message}`));
   state.groupMedia.selectedId = "";
@@ -3417,7 +3561,7 @@ async function addSubtitlesToAllGroups() {
     setStatus("Добавляем субтитры во все группы…", true);
     const data = await api(`/api/project/groups/subtitles${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ missing_only: Boolean($("subtitlesMissingOnly")?.checked), mode: "chunks" }),
+      body: JSON.stringify({ missing_only: Boolean($("subtitlesMissingOnly")?.checked), mode: "chunks", subtitle_defaults: { font_size: Number($("bulkSubtitleFontSize")?.value || 20), max_words: Number($("bulkSubtitleMaxWords")?.value || 5) } }),
     });
     if (data.project) state.project = data.project;
     render();
@@ -3514,7 +3658,7 @@ async function enqueueGroupVideo(groupId, force = false) {
     setStatus(force ? `Queueing ${backend} video regeneration…` : `Queueing ${backend} video generation…`, true);
     const data = await api(`/api/project/groups/${encodeURIComponent(groupId)}/video${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ force: Boolean(force) }),
+      body: JSON.stringify({ force: Boolean(force), source_media_id: state.groupMedia.selectedId || "" }),
     });
     if (data.project) state.project = data.project;
     state.queue = data.queue || state.queue;
@@ -4089,6 +4233,8 @@ async function refreshCompletedTaskChunks(previousStatuses, tasks) {
         imageGroupCompleted = true;
       } else if (task.kind === "video_group") {
         imageGroupCompleted = true;
+      } else if (task.kind === "chunk_image" || task.kind === "chunk_video") {
+        imageGroupCompleted = true;
       }
     } else if (previous && previous !== "failed" && task.status === "failed" && task.kind === "grok_groups") {
       const message = task.message || "Grok AI grouping failed";
@@ -4303,7 +4449,10 @@ document.querySelectorAll(".videoI2vQualityButton").forEach((button) => {
   button.onclick = () => setVideoI2vQualityPreset(button.dataset.quality || "balanced");
 });
 $("videoI2vMotionStyle")?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
-$("videoI2vWorkflowMode")?.addEventListener("change", updateResolvedVideoI2vSettingsHint);
+$("videoI2vWorkflowMode")?.addEventListener("change", () => {
+  updateResolvedVideoI2vSettingsHint();
+  syncImageTaskUi();
+});
 $("videoI2vEnabled")?.addEventListener("change", () => {
   syncBulkVideoButtonLabel();
   syncImageTaskUi();
@@ -4676,6 +4825,10 @@ const generateAiGroupsBtn = $("generateAiGroupsBtn");
 if (generateAiGroupsBtn) generateAiGroupsBtn.onclick = () => generateAiGroups();
 const addManualGroupBtn = $("addManualGroupBtn");
 if (addManualGroupBtn) addManualGroupBtn.onclick = addManualGroup;
+const generateAllGroupPromptsBtn = $("generateAllGroupPromptsBtn");
+if (generateAllGroupPromptsBtn) generateAllGroupPromptsBtn.onclick = () => generateAllGroupPrompts();
+const generateAllChunkPromptsBtn = $("generateAllChunkPromptsBtn");
+if (generateAllChunkPromptsBtn) generateAllChunkPromptsBtn.onclick = () => generateAllChunkPrompts();
 const queueAllImagesBtn = $("queueAllImagesBtn");
 if (queueAllImagesBtn) queueAllImagesBtn.onclick = () => enqueueAllGroupImages();
 const queueAllChunkImagesBtn = $("queueAllChunkImagesBtn");
@@ -4804,7 +4957,7 @@ function musicAudioUrl() {
   return audioUrlForPath(path);
 }
 
-function startSource(ctx, buffer, when, offset, gainValue, { loop = false, automation = null, automationStartTime = state.timeline.cursorSec } = {}) {
+function startSource(ctx, buffer, when, offset, gainValue, { loop = false, automation = null, automationStartTime = state.timeline.cursorSec, playbackRate = 1 } = {}) {
   const source = ctx.createBufferSource();
   const gain = ctx.createGain();
   gain.gain.value = Math.max(0, Number(gainValue) || 0);
@@ -4819,6 +4972,7 @@ function startSource(ctx, buffer, when, offset, gainValue, { loop = false, autom
   }
   source.buffer = buffer;
   source.loop = loop;
+  source.playbackRate.value = clamp(playbackRate, VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
   source.connect(gain).connect(ctx.destination);
   source.start(Math.max(ctx.currentTime, when), Math.max(0, offset || 0));
   state.preview.sources.push(source);
@@ -4839,7 +4993,7 @@ function startPreviewClock(runId) {
   const tick = () => {
     if (!state.sequence.active || state.preview.runId !== runId || !state.preview.ctx) return;
     const elapsed = state.preview.ctx.currentTime - state.preview.startedAtContextTime;
-    const next = Math.min(state.timeline.durationSec, state.preview.startedAtTimelineTime + Math.max(0, elapsed));
+    const next = timelineFromRealtimeDelta(state.preview.startedAtTimelineTime, Math.max(0, elapsed));
     setTimelineCursor(next, { fromPlayback: true });
     setSequenceStatus(`Playing from cursor · ${formatTime(next)} / ${formatTime(state.timeline.durationSec)}`);
     if (next >= state.timeline.durationSec - 0.01) {
@@ -4884,7 +5038,7 @@ async function playFromTimelineCursor(cursorSec = state.timeline.cursorSec) {
   }
 
   const voiceVolume = Number(state.project?.settings?.voice_volume ?? $("voiceVolume").value ?? 1);
-  const playbackTimeNow = () => state.preview.startedAtTimelineTime + Math.max(0, ctx.currentTime - state.preview.startedAtContextTime);
+  const playbackTimeNow = () => timelineFromRealtimeDelta(state.preview.startedAtTimelineTime, Math.max(0, ctx.currentTime - state.preview.startedAtContextTime));
   const scheduleVoice = async () => {
     for (const part of arrangement) {
       if (!state.sequence.active || state.preview.runId !== runId) return;
@@ -4898,12 +5052,13 @@ async function playFromTimelineCursor(cursorSec = state.timeline.cursorSec) {
         if (part.end <= nowTimeline) continue;
         const offset = Math.max(0, nowTimeline - part.start);
         const startTimeForVol = Math.max(nowTimeline, part.start);
-        const when = Math.max(ctx.currentTime, baseTime + Math.max(0, part.start - state.preview.startedAtTimelineTime));
+        const currentSpeed = clamp(videoSpeedAt(startTimeForVol), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+        const when = Math.max(ctx.currentTime, baseTime + realtimeFromTimelineDelta(state.preview.startedAtTimelineTime, startTimeForVol));
         const automation = effectiveEnvelope("voice")
           .filter((point) => point.time >= startTimeForVol && point.time <= part.end)
           .map((point) => ({ ...point, volume: voiceVolume * point.volume }));
         console.debug("[XTTS Studio] voice chunk scheduled", { chunk: part.chunk.order + 1, start: part.start, offset, when });
-        sourceStartWithDuration(ctx, buffer, when, offset, voiceVolume * voiceAutomationAt(startTimeForVol), Math.max(0, part.duration - offset), { automation, automationStartTime: startTimeForVol });
+        sourceStartWithDuration(ctx, buffer, when, offset, voiceVolume * voiceAutomationAt(startTimeForVol), Math.max(0, part.duration - offset) / currentSpeed, { automation, automationStartTime: startTimeForVol, playbackRate: currentSpeed });
       } catch (err) {
         setStatus(`Skipping chunk ${part.chunk.order + 1}: ${err.message}`);
       }
@@ -4933,9 +5088,10 @@ async function playFromTimelineCursor(cursorSec = state.timeline.cursorSec) {
           if (clipEnd <= nowTimeline || clipStart >= state.timeline.durationSec) continue;
           const offset = Math.max(0, Number(clip.offset_sec || 0) + nowTimeline - clipStart);
           if (offset >= musicBuffer.duration) continue;
-          const when = Math.max(ctx.currentTime, baseTime + Math.max(0, clipStart - state.preview.startedAtTimelineTime));
-          const clipVol = Number(clip.volume ?? 1);
           const startTimeForVol = Math.max(nowTimeline, clipStart);
+          const currentSpeed = clamp(videoSpeedAt(startTimeForVol), VIDEO_SPEED_MIN, VIDEO_SPEED_MAX);
+          const when = Math.max(ctx.currentTime, baseTime + realtimeFromTimelineDelta(state.preview.startedAtTimelineTime, startTimeForVol));
+          const clipVol = Number(clip.volume ?? 1);
           const duration = Math.min(clipDuration, musicBuffer.duration - offset, state.timeline.durationSec - startTimeForVol);
           const clipEndForAutomation = startTimeForVol + duration;
           const breakpoints = envelopeBreakpointsInSpan(startTimeForVol, clipEndForAutomation, effectiveMusicEnvelope(), effectiveEnvelope(laneTarget(lane.id)));
@@ -4943,7 +5099,7 @@ async function playFromTimelineCursor(cursorSec = state.timeline.cursorSec) {
           const combinedVolAt = (time) => musicVolumeAt(time) * laneEnvelopeValueAt(lane, time) * laneBaseVol * clipVol;
           const startVol = combinedVolAt(startTimeForVol);
           const automation = breakpoints.map((time) => ({ time, volume: combinedVolAt(time) }));
-          sourceStartWithDuration(ctx, musicBuffer, when, offset, startVol, duration, { automation, automationStartTime: startTimeForVol });
+          sourceStartWithDuration(ctx, musicBuffer, when, offset, startVol, duration / currentSpeed, { automation, automationStartTime: startTimeForVol, playbackRate: currentSpeed });
         }
       }
     } catch (err) {

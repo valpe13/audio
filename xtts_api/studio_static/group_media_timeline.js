@@ -63,7 +63,11 @@ window.XTTSStudio = window.XTTSStudio || {};
         duration_sec: duration,
         visual_duration_sec: duration > 0 ? duration : itemDuration({ start_offset_sec: start }, groupDuration),
         fit: value("fit") || "cover",
-        scheduled: checked("scheduled") !== false,
+        scheduled: (() => { const box = row.querySelector(`[data-media-field='scheduled']`); return Boolean(box && !box.disabled && box.checked); })(),
+        timeline_source: value("timeline_source") || row.dataset.timelineSource || "",
+        auto_sequence_id: value("auto_sequence_id") || row.dataset.autoSequenceId || "",
+        chunk_id: value("chunk_id") || row.dataset.chunkId || "",
+        prompt_scope: value("prompt_scope") || row.dataset.promptScope || "",
       };
     });
   }
@@ -145,7 +149,45 @@ window.XTTSStudio = window.XTTSStudio || {};
     let isPlaying = false;
     const rows = () => [...card.querySelectorAll(".groupMediaItem")];
     const timelineItems = () => namespace.GroupMediaUtils?.scheduledItems?.(normalizedItemsFromRows(card, duration)) || normalizedItemsFromRows(card, duration).filter((item) => item.scheduled !== false);
-    const scheduledRows = () => rows().filter((row) => row.querySelector(`[data-media-field='scheduled']`)?.checked !== false);
+    const isRowScheduled = (row) => {
+      const checkbox = row?.querySelector?.(`[data-media-field='scheduled']`);
+      return Boolean(checkbox && !checkbox.disabled && checkbox.checked);
+    };
+    const scheduledRows = () => rows().filter(isRowScheduled);
+    const rowSpan = (row) => {
+      const start = clamp(row?.querySelector(`[data-media-field='start_offset_sec']`)?.value || 0, 0, duration);
+      const len = Math.max(0.05, Number(row?.querySelector(`[data-media-field='duration_sec']`)?.value || 0.05) || 0.05);
+      return { start, end: Math.min(duration, start + len), duration: Math.min(duration, start + len) - start };
+    };
+    const safeSpanForRow = (row, desiredStart, desiredDuration) => {
+      const others = scheduledRows()
+        .filter((item) => item !== row)
+        .map(rowSpan)
+        .filter((span) => span.end > span.start)
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+      const len = Math.max(0.05, Math.min(Number(desiredDuration || 0.05) || 0.05, duration));
+      const target = clamp(desiredStart, 0, Math.max(0, duration - len));
+      const gaps = [];
+      let cursor = 0;
+      for (const span of others) {
+        if (span.start > cursor + 0.001) gaps.push({ start: cursor, end: span.start });
+        cursor = Math.max(cursor, span.end);
+      }
+      if (cursor < duration - 0.001) gaps.push({ start: cursor, end: duration });
+      const containing = gaps.find((gap) => target >= gap.start - 0.001 && target + len <= gap.end + 0.001);
+      if (containing) return { start: target, duration: len };
+      const adjusted = gaps
+        .map((gap) => ({ gap, duration: Math.min(len, gap.end - gap.start), start: clamp(target, gap.start, Math.max(gap.start, gap.end - Math.min(len, gap.end - gap.start))) }))
+        .filter((item) => item.duration >= 0.05)
+        .sort((a, b) => Math.abs(a.start - target) - Math.abs(b.start - target) || b.duration - a.duration)[0];
+      return adjusted ? { start: adjusted.start, duration: adjusted.duration } : null;
+    };
+    const markManualEdit = (row) => {
+      if (!row) return;
+      row.dataset.timelineSource = "manual";
+      setRowValue(row, "timeline_source", "manual");
+      setRowValue(row, "auto_sequence_id", "");
+    };
     const activeItemAt = (timeSec) => {
       const time = clamp(timeSec, 0, duration);
       return timelineItems().find((item) => {
@@ -218,15 +260,30 @@ window.XTTSStudio = window.XTTSStudio || {};
       const start = clamp(patch.start_offset_sec ?? item.start_offset_sec, 0, duration);
       const maxDuration = Math.max(0, duration - start);
       const nextDuration = clamp(patch.duration_sec ?? item.duration_sec, 0, maxDuration);
-      setRowValue(row, "start_offset_sec", start.toFixed(2));
-      setRowValue(row, "duration_sec", nextDuration.toFixed(2));
+      const safe = safeSpanForRow(row, start, nextDuration);
+      if (!safe) {
+        callbacks.onReject?.("No free group media timeline space for this edit; change rejected.");
+        return;
+      }
+      setRowValue(row, "start_offset_sec", safe.start.toFixed(2));
+      setRowValue(row, "duration_sec", safe.duration.toFixed(2));
+      markManualEdit(row);
       rerender?.();
       select(selectedIndex);
     };
     const deleteSelected = () => {
       const row = scheduledRows()[selectedIndex];
       if (!row) return;
-      row.remove();
+      row.dataset.timelineSource = "";
+      setRowValue(row, "timeline_source", "");
+      setRowValue(row, "auto_sequence_id", "");
+      setRowValue(row, "start_offset_sec", "0.00");
+      setRowValue(row, "duration_sec", "0.00");
+      const scheduledBox = row.querySelector(`[data-media-field='scheduled']`);
+      if (scheduledBox) {
+        scheduledBox.checked = false;
+        scheduledBox.disabled = true;
+      }
       selectedIndex = Math.min(selectedIndex, scheduledRows().length - 1);
       rerender?.();
       callbacks.onChange?.();
@@ -242,7 +299,7 @@ window.XTTSStudio = window.XTTSStudio || {};
         callbacks.onReject?.("Group media timeline is fully occupied; drop rejected.");
         return;
       }
-      const block = { ...item, id: `block_${Date.now()}_${Math.random().toString(16).slice(2)}`, source_id: item.source_id || item.id || "", start_offset_sec: gap.start, duration_sec: gap.duration, scheduled: true, kind: "timeline_block" };
+      const block = { ...item, id: `block_${Date.now()}_${Math.random().toString(16).slice(2)}`, source_id: item.source_id || item.id || "", start_offset_sec: gap.start, duration_sec: gap.duration, scheduled: true, kind: "timeline_block", timeline_source: "manual", auto_sequence_id: "" };
       callbacks.onAdd?.(block);
       rerender?.();
       callbacks.onChange?.();
