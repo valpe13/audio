@@ -1436,10 +1436,10 @@ def prevent_group_media_overlaps(items: list[dict[str, Any]], group: dict[str, A
 DEFAULT_SUBTITLE_SETTINGS = {
     "position": "bottom",
     "font_family": "Arial",
-    "font_size": 20,
+    "font_size": 100,
     "color": "#ffffff",
     "background": "#000000",
-    "background_opacity": 0.45,
+    "background_opacity": 0.0,
     "outline": 2,
     "max_words": 5,
     "word_offset_sec": 0.0,

@@ -1718,10 +1718,10 @@ function groupSubtitleSectionHtml(group) {
       <div class="grid two imageSettingsGrid groupSubtitleDefaults">
         <label>Позиция по умолчанию <select data-subtitle-default="position"><option value="bottom" ${defaults.position !== "top" && defaults.position !== "center" ? "selected" : ""}>снизу</option><option value="center" ${defaults.position === "center" ? "selected" : ""}>по центру</option><option value="top" ${defaults.position === "top" ? "selected" : ""}>сверху</option></select></label>
         <label>Шрифт <input type="text" data-subtitle-default="font_family" value="${escapeHtml(defaults.font_family || "Arial")}" /></label>
-        <label>Размер шрифта вертикальных субтитров <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 20)}" /></label>
+        <label>Размер шрифта вертикальных субтитров <input type="number" min="8" max="160" step="1" data-subtitle-default="font_size" value="${Number(defaults.font_size || 100)}" /></label>
         <label>Цвет <input type="color" data-subtitle-default="color" value="${escapeHtml(defaults.color || "#ffffff")}" /></label>
         <label>Фон <input type="color" data-subtitle-default="background" value="${escapeHtml(defaults.background || "#000000")}" /></label>
-        <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0.45).toFixed(2)}" /><small class="subtitleOpacityHint">0 = без фона / прозрачно</small></label>
+        <label>Прозрачность фона <input type="number" min="0" max="1" step="0.05" data-subtitle-default="background_opacity" value="${Number(defaults.background_opacity ?? 0).toFixed(2)}" /><small class="subtitleOpacityHint">0 = без фона / прозрачно</small></label>
         <label>Обводка <input type="number" min="0" max="12" step="1" data-subtitle-default="outline" value="${Number(defaults.outline || 2)}" /></label>
         <label>Слов в блоке/строке <input type="number" min="1" max="40" step="1" data-subtitle-default="max_words" value="${Number(defaults.max_words || 5)}" /><small class="subtitleOpacityHint">По умолчанию для вертикального видео: 5 слов; после лимита строка очищается.</small></label>
         <label>Сдвиг слов, сек <input type="number" min="-5" max="5" step="0.05" data-subtitle-default="word_offset_sec" value="${Number(defaults.word_offset_sec ?? 0).toFixed(2)}" /><small class="subtitleOpacityHint">− позже диктора, 0 по таймингу, + раньше диктора</small></label>
@@ -3167,7 +3167,7 @@ function renderGroupDetail(group, { force = false } = {}) {
 function groupSubtitleDefaultsFromCard(card) {
   const value = (field) => card.querySelector(`[data-subtitle-default='${field}']`)?.value || "";
   const opacityValue = value("background_opacity");
-  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 20), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0.45 : Number(opacityValue), outline: Number(value("outline") || 2), max_words: Number(value("max_words") || 5), word_offset_sec: Number(value("word_offset_sec") || 0) }) || {};
+  return window.XTTSStudio?.GroupSubtitleTimeline?.defaults?.({ position: value("position"), font_family: value("font_family"), font_size: Number(value("font_size") || 100), color: value("color") || "#ffffff", background: value("background") || "#000000", background_opacity: opacityValue === "" ? 0 : Number(opacityValue), outline: Number(value("outline") || 2), max_words: Number(value("max_words") || 5), word_offset_sec: Number(value("word_offset_sec") || 0) }) || {};
 }
 
 function renderGroupSubtitleEditor(card, group) {
@@ -3569,7 +3569,7 @@ async function addSubtitlesToAllGroups() {
     setStatus("Добавляем субтитры во все группы…", true);
     const data = await api(`/api/project/groups/subtitles${activeProjectQuery()}`, {
       method: "POST",
-      body: JSON.stringify({ missing_only: Boolean($("subtitlesMissingOnly")?.checked), mode: "chunks", subtitle_defaults: { font_size: Number($("bulkSubtitleFontSize")?.value || 20), max_words: Number($("bulkSubtitleMaxWords")?.value || 5) } }),
+      body: JSON.stringify({ missing_only: Boolean($("subtitlesMissingOnly")?.checked), mode: "chunks", subtitle_defaults: { font_size: Number($("bulkSubtitleFontSize")?.value || 100), background_opacity: 0, max_words: Number($("bulkSubtitleMaxWords")?.value || 5) } }),
     });
     if (data.project) state.project = data.project;
     render();
