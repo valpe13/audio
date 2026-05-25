@@ -3,11 +3,22 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 rem Robust Windows launcher for XTTS Studio.
 rem Usage:
-rem   run_xtts_studio_full.cmd          Install/check deps, kill port 7870 listener, start server.
+rem   run_xtts_studio_full.cmd          Install/check deps, verify port 7870 is free, start server.
 rem   run_xtts_studio_full.cmd --check  Validate environment and dependency state without starting server.
 
 chcp 65001 >nul
-cd /d "%~dp0\.."
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_ROOT=%%~fI"
+for %%I in ("%PROJECT_ROOT%\..") do set "PROJECT_PARENT=%%~fI"
+if /I "%PROJECT_ROOT%"=="%PROJECT_PARENT%\audio" if exist "%PROJECT_PARENT%\xtts_api\studio_server.py" (
+    echo [ERROR] This launcher is inside a nested duplicate checkout:
+    echo         "%PROJECT_ROOT%"
+    echo Use the workspace-root launcher instead:
+    echo         "%PROJECT_PARENT%\xtts_api\run_xtts_studio_full.cmd"
+    echo This prevents launching the stale nested XTTS Studio copy.
+    exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
 
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
@@ -19,7 +30,7 @@ set "PORT=7870"
 set "HOST=127.0.0.1"
 set "STUDIO_URL=http://%HOST%:%PORT%/studio/"
 set "HEALTH_URL=http://%HOST%:%PORT%/api/health"
-set "API_DIR=%CD%\xtts_api"
+set "API_DIR=%PROJECT_ROOT%\xtts_api"
 set "VENV_DIR=%API_DIR%\.venv"
 set "REQ_FILE=%API_DIR%\requirements.txt"
 set "STAMP_FILE=%VENV_DIR%\.requirements.sha256"
@@ -63,7 +74,7 @@ if "%CHECK_ONLY%"=="1" (
     goto :done
 )
 
-call :kill_port_listener || goto :fail
+call :check_port_available || goto :fail
 call :start_server || goto :fail
 call :health_check
 
@@ -209,23 +220,26 @@ echo Dependencies are installed and stamp was updated.
 exit /b 0
 
 
-:kill_port_listener
+:check_port_available
 echo.
 echo [4/5] Checking for existing listener on %HOST%:%PORT%...
 set "FOUND_LISTENER=0"
 for /f "tokens=5" %%P in ('netstat -ano -p tcp ^| findstr /R /C:":%PORT% .*LISTENING"') do (
     set "FOUND_LISTENER=1"
-    echo Stopping process PID %%P listening on port %PORT%...
-    taskkill /PID %%P /F >nul 2>nul
-    if errorlevel 1 (
-        echo [WARN] Could not stop PID %%P. It may have already exited or require elevated permissions.
-    ) else (
-        echo Stopped PID %%P.
-    )
+    echo [ERROR] Port %HOST%:%PORT% is already in use by PID %%P.
 )
 
 if "%FOUND_LISTENER%"=="0" echo No existing listener found on port %PORT%.
-timeout /t 2 /nobreak >nul
+if "%FOUND_LISTENER%"=="1" (
+    echo.
+    echo Another server is already bound to %HOST%:%PORT%.
+    echo Identify it with:
+    echo   netstat -ano ^| findstr :%PORT%
+    echo   tasklist /FI "PID eq ^<PID^>"
+    echo Stop it manually only if appropriate:
+    echo   taskkill /PID ^<PID^> /F
+    exit /b 1
+)
 exit /b 0
 
 
@@ -261,7 +275,7 @@ echo Review the messages above. Common fixes:
 echo   - Install Python 3.10 or 3.11 for Windows.
 echo   - Ensure network access to PyPI and PyTorch CUDA 12.1 wheels.
 echo   - Delete "%VENV_DIR%" and rerun if the venv is corrupt.
-echo   - Close any application that cannot be stopped on port %PORT%.
+echo   - Close any existing application using port %PORT%, then rerun.
 echo ============================================================
 exit /b 1
 

@@ -37,6 +37,17 @@ if errorlevel 1 (
 )
 
 echo.
+echo Running optional installer: project ComfyUI custom nodes and API bridges
+call xtts_api\install_comfyui_project_nodes.cmd --yes
+if errorlevel 1 (
+  echo WARNING: Project ComfyUI custom-node installer could not complete.
+  echo          Bridge nodes and external manager/XTTS nodes may need manual installation.
+  set /a OPTIONAL_FAILURES+=1
+) else (
+  echo OK: Project ComfyUI custom nodes and API bridges are present
+)
+
+echo.
 echo Running optional installer: manifest-based image/video models from GitHub Releases
 call xtts_api\install_image_video_models.cmd --yes
 if errorlevel 1 (

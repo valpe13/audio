@@ -14,9 +14,13 @@ Give a fresh Windows user only [`audio_xtts_universal_installer.cmd`](audio_xtts
 - verify the release asset SHA256 checksum;
 - extract the XTTS v2 model into the normal Coqui cache at [`%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2`](README.md);
 - extract the default Natalia Shtin reference into [`xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav`](xtts_api/reference_audio/natalia_shtin/natalia_shtin_clean_reference.wav);
-- run [`install_models.cmd --no-pause`](install_models.cmd) to create [`xtts_api/.venv/`](xtts_api/.venv/) and install Python libraries.
+- run [`install_models.cmd --no-pause`](install_models.cmd) to create [`xtts_api/.venv/`](xtts_api/.venv/) and install XTTS Studio Python libraries;
+- install/repair the approved ComfyUI portable runtime from the [`comfyui-portable-v1`](https://github.com/valpe13/audio/releases/tag/comfyui-portable-v1) release;
+- copy project ComfyUI bridge nodes and install/clone the project custom-node helpers;
+- create optional API environments [`./.venv-silero/`](.venv-silero/) and [`./.venv-fish/`](.venv-fish/), install their requirements, and create [`fish_speech_api/config.json`](fish_speech_api/config.json) from [`fish_speech_api/config.example.json`](fish_speech_api/config.example.json) when missing;
+- download/install the default image/video ComfyUI resources unless [`--skip-video-models`](README.md) is used.
 
-After it finishes, start [`audio/run_audio_stack.cmd`](audio/run_audio_stack.cmd) and choose option `1`.
+After it finishes, start [`audio/run_audio_stack.cmd`](audio/run_audio_stack.cmd) and choose option `1`. Option `6` starts XTTS Studio plus the optional Silero/Fish API services that were prepared by the installer.
 
 Fresh one-file install from an empty folder:
 
@@ -44,13 +48,13 @@ update_repair_comfyui.cmd --with-video
 
 The universal installer treats an existing [`audio/`](audio/) folder as an update. It preserves local user data and machine-specific state, including [`xtts_api/studio_projects/`](xtts_api/studio_projects/), [`xtts_api/reference_audio/`](xtts_api/reference_audio/), [`xtts_api/.venv/`](xtts_api/.venv/), [`.installer_cache/`](.installer_cache/), [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/), local configs, and [`project.secrets.json`](README.md) files. Unless [`--skip-assets`](README.md) is supplied, it re-runs [`install_models.cmd --no-pause`](install_models.cmd) after updating source code; that script is intended to be idempotent and reuses existing dependencies/models when they are already present.
 
-Optional ComfyUI video resources can be installed during setup/update:
+ComfyUI and image/video resources are installed by default during setup/update. To skip only the large image/video model downloads while still installing XTTS, ComfyUI runtime, bridge nodes, and optional audio API environments, run:
 
 ```bat
-audio_xtts_universal_installer.cmd --with-video
+audio_xtts_universal_installer.cmd --skip-video-models
 ```
 
-or separately after the base install:
+Optional video resources can also be repaired/re-run separately after the base install:
 
 ```bat
 install_optional_video_resources.cmd

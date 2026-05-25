@@ -10,6 +10,9 @@ set "XTTS_PY=%XTTS_VENV%\Scripts\python.exe"
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
 set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
 set "XTTS_WHEELHOUSE=xtts_api\wheelhouse"
+if not defined XTTS_PIP_RETRIES set "XTTS_PIP_RETRIES=10"
+if not defined XTTS_PIP_TIMEOUT set "XTTS_PIP_TIMEOUT=60"
+if not defined XTTS_TORCH_INDEX_URL set "XTTS_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121"
 
 echo XTTS installer / model preloader
 echo =================================
@@ -46,6 +49,10 @@ echo Checking XTTS Python dependencies ...
 "%XTTS_PY%" -c "import TTS, torch, torchaudio, fastapi, uvicorn, soundfile, transformers, tokenizers" >nul 2>nul
 if errorlevel 1 (
   call :ensure_cpp_build_tools
+  if errorlevel 1 exit /b 1
+  call :preflight_pip_indexes
+  if errorlevel 1 exit /b 1
+  call :preflight_disk_space
   if errorlevel 1 exit /b 1
   echo Installing missing XTTS Python dependencies ...
   call :pip_install_xtts_requirements
@@ -205,6 +212,75 @@ echo Microsoft C++ Build Tools installation finished.
 echo If pip still cannot find the compiler, close this window and run the installer again.
 exit /b 0
 
+:preflight_pip_indexes
+echo.
+echo Checking pip index access before heavy XTTS dependency install ...
+if defined PIP_INDEX_URL (
+  echo PIP_INDEX_URL=%PIP_INDEX_URL%
+) else (
+  echo PIP_INDEX_URL=^(not set; pip will use its default index, usually https://pypi.org/simple^)
+)
+if defined PIP_EXTRA_INDEX_URL (
+  echo PIP_EXTRA_INDEX_URL=%PIP_EXTRA_INDEX_URL%
+) else (
+  echo PIP_EXTRA_INDEX_URL=^(not set^)
+)
+echo Effective PyTorch CUDA index: %XTTS_TORCH_INDEX_URL%
+echo Heavy pip settings: retries=%XTTS_PIP_RETRIES%, timeout=%XTTS_PIP_TIMEOUT%s
+echo.
+
+"%XTTS_PY%" -m pip index --help >nul 2>nul
+if errorlevel 1 (
+  echo WARNING: This pip version does not support "pip index" checks.
+  echo WARNING: Skipping lightweight index preflight and continuing to the normal install.
+  exit /b 0
+)
+
+echo Preflight: checking that package metadata for TTS is reachable from the configured PyPI index ...
+"%XTTS_PY%" -m pip index versions TTS --retries 2 --timeout 15 --disable-pip-version-check >nul 2>nul
+if errorlevel 1 goto pip_preflight_failed
+
+echo Preflight: checking that package metadata for torch is reachable from the PyTorch CUDA index ...
+"%XTTS_PY%" -m pip index versions torch --index-url "%XTTS_TORCH_INDEX_URL%" --retries 2 --timeout 15 --disable-pip-version-check >nul 2>nul
+if errorlevel 1 goto torch_preflight_failed
+
+echo Pip index preflight passed.
+exit /b 0
+
+:pip_preflight_failed
+echo ERROR: PyPI/package index preflight failed before the heavy dependency install.
+echo ERROR: pip could not read package metadata for TTS from the configured index.
+echo ERROR: This is usually a network/proxy/DNS/firewall/index access problem, not a missing TTS==0.22.0 pin.
+echo ERROR: Try VPN, another network, corporate proxy settings, or set PIP_INDEX_URL/PIP_EXTRA_INDEX_URL to reachable mirrors, then run this installer again.
+echo ОШИБКА: pip не смог прочитать индекс пакетов PyPI. Обычно это проблема сети/proxy/VPN, а не отсутствие TTS==0.22.0.
+echo ОШИБКА: Попробуйте VPN, другую сеть или настройте PIP_INDEX_URL/PIP_EXTRA_INDEX_URL, затем запустите установщик снова.
+echo ERROR: Example: set PIP_INDEX_URL=https://pypi.org/simple
+exit /b 1
+
+:torch_preflight_failed
+echo ERROR: PyTorch CUDA index preflight failed before the heavy dependency install.
+echo ERROR: pip could not read package metadata for torch from: %XTTS_TORCH_INDEX_URL%
+echo ERROR: This is usually a network/proxy/DNS/firewall/index access problem, not a missing torch package pin.
+echo ERROR: Try VPN, another network, corporate proxy settings, or set XTTS_TORCH_INDEX_URL/PIP_EXTRA_INDEX_URL to reachable indexes, then run this installer again.
+echo ОШИБКА: pip не смог прочитать индекс PyTorch CUDA. Обычно это проблема сети/proxy/VPN, а не отсутствие torch.
+echo ОШИБКА: Попробуйте VPN, другую сеть или настройте XTTS_TORCH_INDEX_URL/PIP_EXTRA_INDEX_URL, затем запустите установщик снова.
+echo ERROR: Example: set XTTS_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
+exit /b 1
+
+:preflight_disk_space
+echo.
+echo Checking disk space before heavy XTTS dependency install ...
+echo Recommended: 30+ GB free for CUDA torch/XTTS install. Minimum checked here: 15 GB.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $threshold=15GB; function Get-FreeInfo([string]$Name,[string]$Path){ if([string]::IsNullOrWhiteSpace($Path)){ return $null }; $expanded=[Environment]::ExpandEnvironmentVariables($Path); if(-not (Test-Path -LiteralPath $expanded)){ $parent=Split-Path -Path $expanded -Parent; if($parent -and (Test-Path -LiteralPath $parent)){ $expanded=$parent } }; if(-not (Test-Path -LiteralPath $expanded)){ Write-Host ('  {0}: {1} (path not found; cannot check)' -f $Name,$Path); return $null }; $full=(Resolve-Path -LiteralPath $expanded).Path; $root=[IO.Path]::GetPathRoot($full); $driveName=$root.Substring(0,1); $drive=Get-PSDrive -Name $driveName -PSProvider FileSystem; $free=[int64]$drive.Free; Write-Host ('  {0}: {1} on {2} - {3:N1} GB free' -f $Name,$full,$root,($free/1GB)); [pscustomobject]@{Name=$Name;Path=$full;Root=$root;Free=$free} }; $items=@(); $items += Get-FreeInfo 'Project/current drive' (Get-Location).Path; $items += Get-FreeInfo 'TEMP' $env:TEMP; $pipCache=$null; try { $pipCache=(& $env:XTTS_PY -m pip cache dir 2>$null | Select-Object -First 1); if($LASTEXITCODE -ne 0){ $pipCache=$null } } catch { $pipCache=$null }; if([string]::IsNullOrWhiteSpace($pipCache)){ $pipCache=Join-Path $env:LOCALAPPDATA 'pip\Cache'; Write-Host ('  pip cache dir: using fallback {0}' -f $pipCache) } else { Write-Host ('  pip cache dir: {0}' -f $pipCache) }; $items += Get-FreeInfo 'pip cache drive' $pipCache; $items += Get-FreeInfo 'LOCALAPPDATA / XTTS cache root' $env:LOCALAPPDATA; $low=@($items | Where-Object { $_ -and $_.Free -lt $threshold }); if($low.Count -gt 0){ Write-Host ''; Write-Host 'ERROR: Critical disk space is below 15 GB on at least one install/cache location.'; foreach($i in $low){ Write-Host ('ERROR: {0} has only {1:N1} GB free: {2}' -f $i.Name,($i.Free/1GB),$i.Root) }; Write-Host 'ERROR: Free space or move TEMP/PIP_CACHE_DIR/project to a drive with 30+ GB free, then retry.'; exit 2 }; Write-Host 'Disk-space preflight passed for checked locations.'"
+set "DISK_PREFLIGHT_EXIT=%ERRORLEVEL%"
+if "%DISK_PREFLIGHT_EXIT%"=="2" exit /b 1
+if not "%DISK_PREFLIGHT_EXIT%"=="0" (
+  echo WARNING: Disk-space preflight could not complete. Continuing because this diagnostic check is non-critical.
+  echo WARNING: If pip later fails with [Errno 28] No space left on device, free 30+ GB on project/TEMP/pip cache/LOCALAPPDATA drives.
+  exit /b 0
+)
+exit /b 0
+
 :pip_install_xtts_requirements
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 set "VSINSTALL="
@@ -216,20 +292,37 @@ if defined VSINSTALL if exist "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" (
   echo Running pip inside Visual Studio compiler environment ...
   call "%VSINSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
   if errorlevel 1 exit /b 1
-  "%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  "%XTTS_PY%" -m pip install --disable-pip-version-check --retries %XTTS_PIP_RETRIES% --timeout %XTTS_PIP_TIMEOUT% -r xtts_api\requirements.txt --extra-index-url "%XTTS_TORCH_INDEX_URL%"
   if errorlevel 1 goto pip_requirements_failed
   exit /b 0
 )
 
 echo Visual Studio developer environment was not found; trying normal pip install ...
-"%XTTS_PY%" -m pip install --disable-pip-version-check --retries 10 --timeout 60 -r xtts_api\requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+"%XTTS_PY%" -m pip install --disable-pip-version-check --retries %XTTS_PIP_RETRIES% --timeout %XTTS_PIP_TIMEOUT% -r xtts_api\requirements.txt --extra-index-url "%XTTS_TORCH_INDEX_URL%"
 if errorlevel 1 goto pip_requirements_failed
 exit /b 0
 
 :pip_requirements_failed
 echo ERROR: XTTS dependency installation failed.
 echo ERROR: pip itself is usable, but required packages could not be installed from the configured indexes.
-echo ERROR: This usually means PyPI/network access is unavailable, the pip cache is incomplete, or a package build failed.
-echo ERROR: Retry when internet is stable, or set PIP_INDEX_URL to a reachable mirror before running this installer.
+echo ERROR: This usually means PyPI/PyTorch index access is unavailable, the pip cache is incomplete, or a package build failed.
+echo ERROR: If pip printed "ConnectionResetError" followed by "from versions: none", it usually means pip could not read the index page.
+echo ERROR: In that case, it does NOT mean that TTS==0.22.0 is absent from PyPI.
+echo.
+echo ERROR: If pip printed "OSError: [Errno 28] No space left on device", this is disk space exhaustion.
+echo ERROR: Free space on the project/venv drive, %%TEMP%% drive, pip cache drive, %%LOCALAPPDATA%%/XTTS model cache drive, and OneDrive/system drive.
+echo ERROR: Recommended free space before retry: 30+ GB for CUDA torch/XTTS install.
+echo ERROR: Workaround commands/options:
+echo ERROR:   py -3.10 -m pip cache purge
+echo ERROR:   set TMP=D:\temp
+echo ERROR:   set TEMP=D:\temp
+echo ERROR:   set PIP_CACHE_DIR=D:\pip-cache
+echo ERROR:   Move this project outside OneDrive/system drive to a disk with 30+ GB free.
+echo ERROR:   After freeing space, delete partial xtts_api\.venv and retry this installer.
+echo.
+echo ERROR: Retry when internet is stable, use VPN/another network/proxy, or set PIP_INDEX_URL/PIP_EXTRA_INDEX_URL to reachable mirrors before running this installer.
+echo ОШИБКА: Если после "ConnectionResetError" pip пишет "from versions: none", обычно pip не смог прочитать страницу индекса.
+echo ОШИБКА: Это не означает, что TTS==0.22.0 отсутствует на PyPI. Проверьте сеть/VPN/proxy/индексы и повторите установку.
 echo ERROR: Example: set PIP_INDEX_URL=https://pypi.org/simple
+echo ERROR: Current PyTorch CUDA index: %XTTS_TORCH_INDEX_URL%
 exit /b 1

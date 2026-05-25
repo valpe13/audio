@@ -14,6 +14,7 @@ set "PYTHON_URL=https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.e
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
 set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
 set "XTTS_REFERENCE=xtts_api\reference_audio\natalia_shtin\natalia_shtin_clean_reference.wav"
+if not defined XTTS_TORCH_INDEX_URL set "XTTS_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121"
 set "CURRENT_INSTALLER=%~f0"
 if exist "install_models.cmd" if exist "xtts_api\install_comfyui_portable.cmd" set "APP_DIR=."
 
@@ -60,6 +61,12 @@ if defined SKIP_ASSETS (
 )
 
 call :install_base_comfyui_runtime
+if errorlevel 1 goto fail
+
+call :install_project_comfyui_nodes
+if errorlevel 1 goto fail
+
+call :install_optional_audio_apis
 if errorlevel 1 goto fail
 
 call :install_default_video_resources
@@ -110,7 +117,7 @@ echo проектные файлы синхронизируются из GitHub 
 echo Базовый ComfyUI portable проверяется и ремонтируется автоматически; сломанная
 echo папка ComfyUI_windows_portable переименовывается в backup установщиком ComfyUI.
 echo Проверка включает ядро ComfyUI: ComfyUI\comfy\ldm\models\autoencoder.py.
-echo По умолчанию установщик также скачивает image/video модели и доп. ресурсы ComfyUI.
+echo По умолчанию установщик также готовит Silero/Fish API окружения и скачивает image/video модели.
 echo Повторный запуск безопасен: существующие модели не перезаписываются без необходимости.
 exit /b 0
 
@@ -209,7 +216,7 @@ if not exist "%UNZIP_DIR%\audio-main\install_models.cmd" (
   echo ОШИБКА: Не удалось найти install_models.cmd в загруженном ZIP проекта.
   exit /b 1
 )
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$src='%UNZIP_DIR%\audio-main'; $dst='%CD%\%APP_DIR%'; $preserve=@('.git','.installer_cache','ComfyUI_windows_portable','xtts_api\.venv','xtts_api\reference_audio','xtts_api\studio_projects','fish_speech_api\config.json'); Get-ChildItem -LiteralPath $src -Force | ForEach-Object { $rel=$_.Name; if($preserve -contains $rel){ return }; Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dst $rel) -Recurse -Force };"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$src='%UNZIP_DIR%\audio-main'; $dst='%CD%\%APP_DIR%'; $preserve=@('.git','.installer_cache','ComfyUI_windows_portable','.venv-silero','.venv-fish','xtts_api\.venv','xtts_api\reference_audio','xtts_api\studio_projects','fish_speech_api\config.json'); Get-ChildItem -LiteralPath $src -Force | ForEach-Object { $rel=$_.Name; if($preserve -contains $rel){ return }; Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dst $rel) -Recurse -Force };"
 if errorlevel 1 exit /b 1
 exit /b 0
 
@@ -279,6 +286,76 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Базовый ComfyUI portable готов.
+exit /b 0
+
+:install_optional_audio_apis
+echo.
+echo Подготавливаю optional Silero/Fish Speech API окружения для меню run_audio_stack.cmd...
+call :install_silero_api
+if errorlevel 1 exit /b 1
+call :install_fish_api
+if errorlevel 1 exit /b 1
+echo Optional audio API окружения готовы.
+exit /b 0
+
+:install_silero_api
+if not exist "silero_tts_api\requirements.txt" (
+  echo ПРЕДУПРЕЖДЕНИЕ: silero_tts_api\requirements.txt не найден. Пропускаю Silero API.
+  exit /b 0
+)
+if not exist ".venv-silero\Scripts\python.exe" (
+  echo Создаю .venv-silero для Silero TTS API...
+  py -3.10 -m venv ".venv-silero"
+  if errorlevel 1 (
+    echo ОШИБКА: Не удалось создать .venv-silero.
+    exit /b 1
+  )
+)
+echo Устанавливаю зависимости Silero TTS API...
+".venv-silero\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r silero_tts_api\requirements.txt --extra-index-url "%XTTS_TORCH_INDEX_URL%"
+if errorlevel 1 (
+  echo ОШИБКА: Не удалось установить зависимости Silero TTS API.
+  echo Silero нужен только для option 2/6 и stress-aware RU backend, но установщик должен подготовить полный пользовательский стек.
+  exit /b 1
+)
+exit /b 0
+
+:install_fish_api
+if not exist "fish_speech_api\requirements.txt" (
+  echo ПРЕДУПРЕЖДЕНИЕ: fish_speech_api\requirements.txt не найден. Пропускаю Fish Speech API.
+  exit /b 0
+)
+if not exist ".venv-fish\Scripts\python.exe" (
+  echo Создаю .venv-fish для Fish Speech API...
+  py -3.10 -m venv ".venv-fish"
+  if errorlevel 1 (
+    echo ОШИБКА: Не удалось создать .venv-fish.
+    exit /b 1
+  )
+)
+if exist "fish_speech_api\config.example.json" if not exist "fish_speech_api\config.json" copy "fish_speech_api\config.example.json" "fish_speech_api\config.json" >nul
+echo Устанавливаю зависимости Fish Speech API...
+".venv-fish\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r fish_speech_api\requirements.txt
+if errorlevel 1 (
+  echo ОШИБКА: Не удалось установить зависимости Fish Speech API.
+  exit /b 1
+)
+exit /b 0
+
+:install_project_comfyui_nodes
+echo.
+echo Устанавливаю проектные ComfyUI custom nodes и bridge-узлы...
+if not exist "xtts_api\install_comfyui_project_nodes.cmd" (
+  echo ОШИБКА: Не найден xtts_api\install_comfyui_project_nodes.cmd.
+  echo Без него нельзя повторить текущие bridge/custom-node компоненты ComfyUI.
+  exit /b 1
+)
+call xtts_api\install_comfyui_project_nodes.cmd --yes
+if errorlevel 1 (
+  echo ОШИБКА: Проектные ComfyUI custom nodes не удалось установить.
+  exit /b 1
+)
+echo Проектные ComfyUI custom nodes готовы.
 exit /b 0
 
 :download_assets

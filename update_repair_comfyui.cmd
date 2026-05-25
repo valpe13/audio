@@ -41,6 +41,15 @@ call xtts_api\install_comfyui_portable.cmd --yes --force
 if errorlevel 1 goto fail
 
 echo.
+echo Устанавливаю/обновляю проектные ComfyUI custom nodes и bridge-узлы...
+if not exist "xtts_api\install_comfyui_project_nodes.cmd" (
+  echo ОШИБКА: Не найден xtts_api\install_comfyui_project_nodes.cmd.
+  goto fail
+)
+call xtts_api\install_comfyui_project_nodes.cmd --yes
+if errorlevel 1 goto fail
+
+echo.
 if defined WITH_VIDEO (
   echo Устанавливаю/обновляю дополнительные видео-ресурсы ComfyUI...
   if exist "install_optional_video_resources.cmd" (

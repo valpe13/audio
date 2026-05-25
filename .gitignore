@@ -30,10 +30,18 @@ xtts_api/studio_projects/projects/*/project.secrets.json
 # Do not commit portable runtimes or downloaded model bundles.
 # Installer scripts recreate/download runtime assets locally when needed.
 ComfyUI_windows_portable/
+ComfyUI_windows_portable.backup-*/
 fish_speech_runtime/
 release_assets/
 /audio/
 1/
+*.zip
+*.zip.*
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tgz
 *.pth
 *.pt
 *.ckpt
@@ -67,6 +75,8 @@ xtts_api/reference_audio/
 *.log
 *.tmp
 *.temp
+*.download
+*.reassemble
 .DS_Store
 Thumbs.db
 *.local.*

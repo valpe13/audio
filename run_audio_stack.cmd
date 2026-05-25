@@ -1,6 +1,18 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%.") do set "PROJECT_ROOT=%%~fI"
+for %%I in ("%PROJECT_ROOT%\..") do set "PROJECT_PARENT=%%~fI"
+if /I "%PROJECT_ROOT%"=="%PROJECT_PARENT%\audio" if exist "%PROJECT_PARENT%\xtts_api\studio_server.py" (
+  echo [ERROR] This launcher is inside a nested duplicate checkout:
+  echo         "%PROJECT_ROOT%"
+  echo Use the workspace-root launcher instead:
+  echo         "%PROJECT_PARENT%\run_audio_stack.cmd"
+  echo This prevents launching the stale nested audio stack copy.
+  pause
+  exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
 
 echo Audio stack launcher
 echo ====================
