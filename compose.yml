@@ -1,0 +1,32 @@
+services:
+  audio-stack:
+    build:
+      context: .
+    image: audio-stack:local
+    container_name: audio-stack
+    restart: unless-stopped
+    shm_size: "2gb"
+    environment:
+      XTTS_PORT: "7870"
+      SILERO_PORT: "7866"
+      FISH_PORT: "7865"
+      XTTS_DEVICE: "${XTTS_DEVICE:-auto}"
+      SILERO_DEVICE: "${SILERO_DEVICE:-cpu}"
+      START_XTTS: "${START_XTTS:-1}"
+      START_SILERO: "${START_SILERO:-1}"
+      START_FISH: "${START_FISH:-1}"
+      XTTS_DEFAULT_TTS_BACKEND: "${XTTS_DEFAULT_TTS_BACKEND:-silero}"
+      SILERO_API_URL: "http://127.0.0.1:7866"
+      COMFYUI_AUTOSTART: "0"
+      FISH_BACKEND: "${FISH_BACKEND:-placeholder}"
+      XAI_API_KEY: "${XAI_API_KEY:-}"
+    ports:
+      - "${AUDIO_XTTS_PORT:-7870}:7870"
+      - "${AUDIO_SILERO_PORT:-7866}:7866"
+      - "${AUDIO_FISH_PORT:-7865}:7865"
+    volumes:
+      - ./docker-data/studio_projects:/app/xtts_api/studio_projects
+      - ./docker-data/reference_audio:/app/xtts_api/reference_audio
+      - ./docker-data/fish_outputs:/app/fish_speech_api/outputs
+      - ./docker-data/silero_outputs:/app/silero_tts_api/outputs
+      - ./docker-data/models:/models

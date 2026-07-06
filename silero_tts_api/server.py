@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -13,7 +14,11 @@ from silero_backend import DEFAULT_OUTPUT_DIR, DEFAULT_SAMPLE_RATE, DEFAULT_SPEA
 
 
 app = FastAPI(title="Local Silero RU TTS API", version="0.1.0")
-backend = SileroTTSBackend(model_id="v4_ru", language="ru", device="cpu")
+backend = SileroTTSBackend(
+    model_id=os.environ.get("SILERO_MODEL_ID", "v4_ru"),
+    language=os.environ.get("SILERO_LANGUAGE", "ru"),
+    device=os.environ.get("SILERO_DEVICE", "cpu"),
+)
 
 
 class SileroSynthesizeRequest(BaseModel):
@@ -91,5 +96,9 @@ def synthesize(payload: SileroSynthesizeRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host="127.0.0.1", port=7866)
+    uvicorn.run(
+        "server:app",
+        host=os.environ.get("SILERO_HOST", "127.0.0.1"),
+        port=int(os.environ.get("SILERO_PORT", "7866")),
+    )
 

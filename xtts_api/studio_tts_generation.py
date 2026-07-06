@@ -1,4 +1,5 @@
 import inspect
+import os
 import threading
 import time
 import uuid
@@ -195,11 +196,24 @@ def make_tts_generation_helpers(deps: dict[str, Any]) -> dict[str, Any]:
     tts_lock = threading.Lock()
     state: dict[str, Any] = {"tts_model": None}
 
+    def use_cuda_for_xtts() -> bool:
+        requested = os.environ.get("XTTS_DEVICE", os.environ.get("XTTS_TTS_DEVICE", "auto")).strip().lower()
+        if requested in {"cpu", "false", "0", "no", "off"}:
+            return False
+        if requested in {"cuda", "gpu", "true", "1", "yes", "on"}:
+            return True
+        try:
+            import torch
+
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
     def get_tts_model():
         if state["tts_model"] is None:
             from TTS.api import TTS
 
-            state["tts_model"] = TTS(deps["MODEL_NAME"], progress_bar=True, gpu=True)
+            state["tts_model"] = TTS(deps["MODEL_NAME"], progress_bar=True, gpu=use_cuda_for_xtts())
         return state["tts_model"]
 
     def is_tts_model_loaded() -> bool:

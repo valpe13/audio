@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -21,11 +22,15 @@ EXAMPLE_CONFIG_PATH = BASE_DIR / "config.example.json"
 
 
 def load_config() -> dict[str, Any]:
-    source = CONFIG_PATH if CONFIG_PATH.exists() else EXAMPLE_CONFIG_PATH
+    config_path = Path(os.environ.get("FISH_CONFIG_PATH", "")).expanduser() if os.environ.get("FISH_CONFIG_PATH") else CONFIG_PATH
+    source = config_path if config_path.exists() else (CONFIG_PATH if CONFIG_PATH.exists() else EXAMPLE_CONFIG_PATH)
     with source.open("r", encoding="utf-8") as file:
         config = json.load(file)
 
-    output_dir = Path(str(config.get("output_dir", "outputs")))
+    if os.environ.get("FISH_BACKEND"):
+        config["backend"] = os.environ["FISH_BACKEND"]
+
+    output_dir = Path(str(os.environ.get("FISH_OUTPUT_DIR") or config.get("output_dir", "outputs")))
     if not output_dir.is_absolute():
         output_dir = BASE_DIR / output_dir
     config["output_dir"] = str(output_dir)
@@ -164,5 +169,9 @@ def synthesize_long_form(payload: LongFormRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("server:app", host=str(config.get("host", "127.0.0.1")), port=int(config.get("port", 7865)))
+    uvicorn.run(
+        "server:app",
+        host=os.environ.get("FISH_HOST", str(config.get("host", "127.0.0.1"))),
+        port=int(os.environ.get("FISH_PORT", str(config.get("port", 7865)))),
+    )
 

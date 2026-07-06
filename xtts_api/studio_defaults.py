@@ -1,3 +1,6 @@
+import base64
+import mimetypes
+import os
 from pathlib import Path
 from typing import Any
 
@@ -190,6 +193,13 @@ IMAGE_STYLE_PRESETS = {
     },
 }
 
+def env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def build_default_settings(root: Path, default_ref: Path, default_pronunciation_dictionary: Path) -> dict[str, Any]:
     return {
     "reference_path": str(default_ref.relative_to(root)),
@@ -215,11 +225,11 @@ def build_default_settings(root: Path, default_ref: Path, default_pronunciation_
     "image_width": 896,
     "image_height": 1152,
     "image_style_preset": "sleep_documentary",
-    "image_comfyui_url": "http://127.0.0.1:8188",
+    "image_comfyui_url": os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188"),
     "image_comfyui_path": "ComfyUI_windows_portable",
     "image_comfyui_python": "",
     "image_comfyui_launch_cmd": "",
-    "image_comfyui_autostart": True,
+    "image_comfyui_autostart": env_bool("COMFYUI_AUTOSTART", True),
     "image_workflow_mode": "generated",
     "image_workflow_path": "",
     "image_model_checkpoint": REALVISXL_CHECKPOINT,
@@ -258,8 +268,8 @@ def build_default_settings(root: Path, default_ref: Path, default_pronunciation_
     "tts_pronunciation_preprocess_enabled": True,
     "tts_pronunciation_dictionary_path": str(default_pronunciation_dictionary.relative_to(root)),
     "tts_stress_mark_style": "acute",
-    "tts_backend": "xtts",
-    "silero_api_url": "http://127.0.0.1:7866",
+    "tts_backend": os.environ.get("XTTS_DEFAULT_TTS_BACKEND", "xtts"),
+    "silero_api_url": os.environ.get("SILERO_API_URL", "http://127.0.0.1:7866"),
     "silero_speaker": "baya",
     "silero_sample_rate": 48000,
     "silero_realism_enabled": True,

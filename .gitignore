@@ -51,6 +51,7 @@ release_assets/
 *.gguf
 
 # Generated audio/media outputs and uploads
+docker-data/
 outputs/
 **/outputs/
 **/uploads/
@@ -73,6 +74,7 @@ xtts_api/reference_audio/
 # Logs and temporary files
 .installer_cache/
 *.log
+docker-build.*.log
 *.tmp
 *.temp
 *.download

@@ -1,5 +1,21 @@
 # Local XTTS Studio + optional audio APIs/ComfyUI bridges
 
+## Docker deployment
+
+For a reproducible setup on another machine, use the Docker workflow in [`README_DOCKER.md`](README_DOCKER.md):
+
+```bat
+install_docker_stack.cmd
+```
+
+or manually:
+
+```bash
+docker compose up --build
+```
+
+It starts XTTS Studio, Silero API, and the Fish Speech placeholder API in one container, with project data, model caches, and reference audio stored under `docker-data/`.
+
 ## Fresh Windows setup for the current XTTS workflow
 
 The active workflow is the standalone XTTS Studio in [`xtts_api/`](xtts_api/). It is launched by [`run_audio_stack.cmd`](run_audio_stack.cmd) and does **not** require [`ComfyUI_windows_portable/`](ComfyUI_windows_portable/) for normal XTTS generation. The ComfyUI folders in this repository are optional bridges for older/alternate workflows.

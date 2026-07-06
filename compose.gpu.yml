@@ -1,0 +1,8 @@
+services:
+  audio-stack:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+      XTTS_DEVICE: "cuda"
+      SILERO_DEVICE: "cuda"

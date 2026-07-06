@@ -144,6 +144,8 @@ class SileroTTSBackend:
     @staticmethod
     def _normalize_device(device: str) -> str:
         requested = (device or DEFAULT_DEVICE).strip().lower()
+        if requested in {"auto", ""}:
+            return "cuda" if torch.cuda.is_available() else "cpu"
         if requested == "cuda" and torch.cuda.is_available():
             return "cuda"
         return "cpu"
