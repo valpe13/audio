@@ -1,4 +1,5 @@
 import copy
+import json
 import shutil
 import subprocess
 import time
@@ -64,6 +65,7 @@ def make_export_helpers(ctx: dict[str, Any]) -> dict[str, Any]:
     sanitize_bitrate = ctx["sanitize_bitrate"]
     save_project = ctx["save_project"]
     selected_chunk_audio_path = ctx["selected_chunk_audio_path"]
+    split_range_by_group_media_timeline = ctx["split_range_by_group_media_timeline"]
     subtitle_event_model_for_block = ctx["subtitle_event_model_for_block"]
     visual_segment_source_value = ctx["visual_segment_source_value"]
     wav_stats = ctx["wav_stats"]
@@ -418,7 +420,7 @@ def make_export_helpers(ctx: dict[str, Any]) -> dict[str, Any]:
         if audio_format == "wav":
             out = wav_source
             result = wav_stats(out)
-            result.update({"media_type": "audio", "format": "wav", "channels": channels})
+            result.update({"media_type": "audio", "format": "wav", "requested_format": audio_format, "container": "wav", "channels": channels})
         else:
             ffmpeg = locate_ffmpeg(project)
             if not ffmpeg:
@@ -440,7 +442,7 @@ def make_export_helpers(ctx: dict[str, Any]) -> dict[str, Any]:
             except OSError:
                 pass
             result = media_stats(out, sample_rate=sr, duration_sec=(len(final) / sr), media_type="audio")
-            result.update({"channels": channels, "bitrate": bitrate})
+            result.update({"requested_format": audio_format, "container": ext, "channels": channels, "bitrate": bitrate})
         project["export"] = result
         project.setdefault("exports", []).append(result)
         save_project(project)
@@ -465,100 +467,91 @@ def make_export_helpers(ctx: dict[str, Any]) -> dict[str, Any]:
         work_dir = out_dir / f"work_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         work_dir.mkdir(parents=True, exist_ok=True)
         work_dir_abs = work_dir.resolve()
-        final_audio, sr = render_project_audio(project, target_sr=int(payload.sample_rate or 48000), channels=2)
-        duration = len(final_audio) / float(sr)
-        audio_wav = work_dir / "audio.wav"
-        sf.write(audio_wav, final_audio, sr, subtype="PCM_16")
-        ranges = group_time_ranges(project)
-        speed_points = normalized_main_timeline_speed_envelope(project)
-        speed_curve_applied = False
-        speed_note = "global/main timeline speed disabled; export uses constant 1.0x generated audio/group-local timing"
-        segments = build_export_visual_segments(project, ranges, duration, width, height, fps, str(payload.video_fit or "cover"), work_dir, speed_points)
-        if not segments:
-            raise HTTPException(status_code=400, detail="No group video/image assets found for video export. Generate at least one group image or video first.")
-        concat_file = work_dir / "segments.txt"
-        concat_file.write_text(format_ffmpeg_concat_file(segments), encoding="utf-8")
-        visual_mp4 = work_dir / "visual.mp4"
-        run_ffmpeg([ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(visual_mp4)])
-        subtitle_ass = work_dir / "subtitles.ass"
-        subtitle_visual = visual_mp4
-        subtitle_events, subtitle_diagnostics = subtitle_events_for_export_duration(project, duration)
-        subtitle_event_count = len(subtitle_events)
-        subtitle_ass_created = write_export_subtitles_ass(project, width, height, subtitle_ass, subtitle_events)
-        subtitle_ass_size = subtitle_ass.stat().st_size if subtitle_ass.exists() else 0
-        subtitles_burned = False
-        subtitle_burn_status = "no_events"
-        subtitle_burn_error = ""
-        final_video_input = visual_mp4
-        if subtitle_ass_created:
-            subtitle_burn_status = "attempted"
-            # Use a short relative filename and run from the work directory. This avoids
-            # Windows drive-colon escaping and non-ASCII OneDrive path parsing problems
-            # in FFmpeg's subtitles filter while preserving normal absolute executable use.
-            subtitle_visual = work_dir / "visual_subtitled.mp4"
-            try:
-                run_ffmpeg([
-                    ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error",
-                    "-i", "visual.mp4",
-                    "-vf", "subtitles=subtitles.ass",
-                    "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an",
-                    "visual_subtitled.mp4",
-                ], cwd=work_dir_abs)
-                subtitles_burned = subtitle_visual.exists() and subtitle_visual.stat().st_size > 0
-                subtitle_burn_status = "burned" if subtitles_burned else "missing_output"
-                if not subtitles_burned:
-                    raise RuntimeError("FFmpeg subtitle burn completed without producing visual_subtitled.mp4")
-                final_video_input = subtitle_visual
-            except Exception as exc:
-                subtitle_burn_error = str(exc)[:1000]
-                subtitle_burn_status = "failed"
-                raise RuntimeError(f"Subtitle burn-in failed after generating {subtitle_event_count} subtitle events at {subtitle_ass}: {subtitle_burn_error}") from exc
-        elif subtitle_diagnostics.get("raw_event_count", 0) > 0:
-            subtitle_burn_status = "events_outside_export_duration"
-            raise RuntimeError(
-                "Subtitle events were generated but none overlap the exported video duration "
-                f"({subtitle_diagnostics.get('raw_event_count')} raw events, duration {duration:.3f}s, "
-                f"scope {subtitle_diagnostics.get('export_scope')}, offset {subtitle_diagnostics.get('export_timeline_offset_sec')}s)"
-            )
-        ext = "mov" if video_format == "mov" else "webm" if video_format == "webm" else "mp4"
-        out = out_dir / f"final_video_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
-        if video_format == "webm":
-            cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
-        else:
-            crf = "28" if payload.video_quality == "small" else "18" if payload.video_quality == "high" else "23"
-            cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
-        run_ffmpeg(cmd)
+        out: Path | None = None
         try:
-            shutil.rmtree(work_dir)
-        except OSError:
-            pass
-        result = media_stats(out, sample_rate=sr, duration_sec=duration, media_type="video")
-        result.update({
-            "width": width,
-            "height": height,
-            "orientation": orientation,
-            "fps": fps,
-            "container": video_format,
-            "visual_segments": len(segments),
-            "fit": str(payload.video_fit or "cover"),
-            "speed_curve_applied": speed_curve_applied,
-            "speed_curve_points": len(speed_points),
-            "speed_curve_scope": "disabled_main_timeline",
-            "speed_curve_note": speed_note,
-            "subtitles_burned": subtitles_burned,
-            "subtitle_event_count": subtitle_event_count,
-            "subtitle_raw_event_count": subtitle_diagnostics.get("raw_event_count", subtitle_event_count),
-            "subtitle_events_outside_export_duration": subtitle_diagnostics.get("events_outside_export_duration", 0),
-            "subtitle_event_time_min": subtitle_diagnostics.get("event_time_min", 0.0),
-            "subtitle_event_time_max": subtitle_diagnostics.get("event_time_max", 0.0),
-            "subtitle_ass_created": subtitle_ass_created,
-            "subtitle_ass_size": subtitle_ass_size,
-            "subtitle_burn_status": subtitle_burn_status,
-            "subtitle_burn_error": subtitle_burn_error,
-            "subtitle_visual_input": "visual_subtitled.mp4" if final_video_input == subtitle_visual and subtitles_burned else "visual.mp4",
-            "subtitle_export_timeline_offset_sec": subtitle_diagnostics.get("export_timeline_offset_sec", 0.0),
-            "timeline_fidelity": "group ranges from chunk timings; scheduled group media blocks are selected by local timeline time like the main preview, global speed is ignored at 1.0x, subtitles are rebased/clamped to the exported group-local timeline, burned into the visual file, then muxed with audio",
-        })
+            final_audio, sr = render_project_audio(project, target_sr=int(payload.sample_rate or 48000), channels=2)
+            duration = len(final_audio) / float(sr)
+            audio_wav = work_dir / "audio.wav"
+            sf.write(audio_wav, final_audio, sr, subtype="PCM_16")
+            ranges = group_time_ranges(project)
+            speed_points = normalized_main_timeline_speed_envelope(project)
+            speed_curve_applied = False
+            speed_note = "global/main timeline speed disabled; export uses constant 1.0x generated audio/group-local timing"
+            segments = build_export_visual_segments(project, ranges, duration, width, height, fps, str(payload.video_fit or "cover"), work_dir, speed_points)
+            if not segments:
+                raise HTTPException(status_code=400, detail="No group video/image assets found for video export. Generate at least one group image or video first.")
+            concat_file = work_dir / "segments.txt"
+            concat_file.write_text(format_ffmpeg_concat_file(segments), encoding="utf-8")
+            visual_mp4 = work_dir / "visual.mp4"
+            run_ffmpeg([ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(visual_mp4)])
+            subtitle_ass = work_dir / "subtitles.ass"
+            subtitle_visual = visual_mp4
+            subtitle_events, subtitle_diagnostics = subtitle_events_for_export_duration(project, duration)
+            subtitle_event_count = len(subtitle_events)
+            subtitle_ass_created = write_export_subtitles_ass(project, width, height, subtitle_ass, subtitle_events)
+            subtitle_ass_size = subtitle_ass.stat().st_size if subtitle_ass.exists() else 0
+            subtitles_burned = False
+            subtitle_burn_status = "no_events"
+            subtitle_burn_error = ""
+            final_video_input = visual_mp4
+            if subtitle_ass_created:
+                subtitle_burn_status = "attempted"
+                subtitle_visual = work_dir / "visual_subtitled.mp4"
+                try:
+                    run_ffmpeg([ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", "visual.mp4", "-vf", "subtitles=subtitles.ass", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an", "visual_subtitled.mp4"], cwd=work_dir_abs)
+                    subtitles_burned = subtitle_visual.exists() and subtitle_visual.stat().st_size > 0
+                    subtitle_burn_status = "burned" if subtitles_burned else "missing_output"
+                    if not subtitles_burned:
+                        raise RuntimeError("FFmpeg subtitle burn completed without producing visual_subtitled.mp4")
+                    final_video_input = subtitle_visual
+                except Exception as exc:
+                    subtitle_burn_error = str(exc)[:1000]
+                    subtitle_burn_status = "failed"
+                    raise RuntimeError(f"Subtitle burn-in failed after generating {subtitle_event_count} subtitle events at {subtitle_ass}: {subtitle_burn_error}") from exc
+            elif subtitle_diagnostics.get("raw_event_count", 0) > 0:
+                subtitle_burn_status = "events_outside_export_duration"
+                raise RuntimeError(
+                    "Subtitle events were generated but none overlap the exported video duration "
+                    f"({subtitle_diagnostics.get('raw_event_count')} raw events, duration {duration:.3f}s, "
+                    f"scope {subtitle_diagnostics.get('export_scope')}, offset {subtitle_diagnostics.get('export_timeline_offset_sec')}s)"
+                )
+            ext = "mov" if video_format == "mov" else "webm" if video_format == "webm" else "mp4"
+            out = out_dir / f"final_video_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
+            if video_format == "webm":
+                cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34" if payload.video_quality == "small" else "30", "-c:a", "libopus", "-b:a", sanitize_bitrate(payload.audio_bitrate, "128k"), "-shortest", str(out)]
+            else:
+                crf = "28" if payload.video_quality == "small" else "18" if payload.video_quality == "high" else "23"
+                cmd = [ffmpeg_cmd, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_video_input), "-i", str(audio_wav), "-t", f"{duration:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", sanitize_bitrate(payload.audio_bitrate, "192k"), "-movflags", "+faststart", "-shortest", str(out)]
+            run_ffmpeg(cmd)
+            result = media_stats(out, sample_rate=sr, duration_sec=duration, media_type="video")
+            result.update({
+                "width": width, "height": height, "orientation": orientation, "fps": fps,
+                "container": video_format, "visual_segments": len(segments), "fit": str(payload.video_fit or "cover"),
+                "speed_curve_applied": speed_curve_applied, "speed_curve_points": len(speed_points),
+                "speed_curve_scope": "disabled_main_timeline", "speed_curve_note": speed_note,
+                "subtitles_burned": subtitles_burned, "subtitle_event_count": subtitle_event_count,
+                "subtitle_raw_event_count": subtitle_diagnostics.get("raw_event_count", subtitle_event_count),
+                "subtitle_events_outside_export_duration": subtitle_diagnostics.get("events_outside_export_duration", 0),
+                "subtitle_event_time_min": subtitle_diagnostics.get("event_time_min", 0.0),
+                "subtitle_event_time_max": subtitle_diagnostics.get("event_time_max", 0.0),
+                "subtitle_ass_created": subtitle_ass_created, "subtitle_ass_size": subtitle_ass_size,
+                "subtitle_burn_status": subtitle_burn_status, "subtitle_burn_error": subtitle_burn_error,
+                "subtitle_visual_input": "visual_subtitled.mp4" if final_video_input == subtitle_visual and subtitles_burned else "visual.mp4",
+                "subtitle_export_timeline_offset_sec": subtitle_diagnostics.get("export_timeline_offset_sec", 0.0),
+                "timeline_fidelity": "group ranges from chunk timings; scheduled group media blocks are selected by local timeline time like the main preview, global speed is ignored at 1.0x, subtitles are rebased/clamped to the exported group-local timeline, burned into the visual file, then muxed with audio",
+            })
+        except Exception:
+            if out and out.exists():
+                try:
+                    out.unlink()
+                except OSError:
+                    pass
+            raise
+        finally:
+            try:
+                shutil.rmtree(work_dir)
+            except OSError:
+                pass
         project["export"] = result
         project.setdefault("exports", []).append(result)
         save_project(project)
@@ -570,15 +563,30 @@ def make_export_helpers(ctx: dict[str, Any]) -> dict[str, Any]:
         scoped_project, scope = project_for_export_scope(project, request)
         if bool(request.separate_groups) or scope == "all_groups_separate":
             results: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
             groups = scoped_project.get("arrangement", {}).get("video", {}).get("groups", [])
             for group in groups:
-                single_request = request.copy(update={"export_scope": "selected_groups", "group_ids": [str(group.get("id"))], "separate_groups": False})
-                single_project, _ = project_for_export_scope(project, single_request)
-                result = export_project_with_settings(single_project, single_request)
-                result["group_id"] = group.get("id")
-                result["group_title"] = group.get("title")
-                results.append(result)
-            summary = {"media_type": "batch", "format": request.video_format if request.export_type == "video" else request.audio_format, "files": results, "file_count": len(results), "export_scope": "all_groups_separate", "url": results[0].get("url") if results else ""}
+                group_id = str(group.get("id") or "")
+                group_title = group.get("title")
+                single_request = request.copy(update={"export_scope": "selected_groups", "group_ids": [group_id], "separate_groups": False})
+                try:
+                    single_project, _ = project_for_export_scope(project, single_request)
+                    result = export_project_with_settings(single_project, single_request)
+                    result["group_id"] = group_id
+                    result["group_title"] = group_title
+                    results.append(result)
+                except Exception as exc:
+                    errors.append({"group_id": group_id, "group_title": group_title, "error": str(exc)[:1000]})
+            if not results and errors:
+                raise HTTPException(status_code=400, detail={"message": "Batch export failed for every group", "errors": errors})
+            summary_format = request.video_format if request.export_type == "video" else request.audio_format
+            out_dir = project_exports_dir(safe_project_id(str(project.get("id") or active_project_id())))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            manifest = out_dir / f"batch_export_{int(time.time())}_{uuid.uuid4().hex[:6]}.json"
+            summary = {"media_type": "batch", "format": summary_format, "requested_format": summary_format, "files": results, "errors": errors, "file_count": len(results), "error_count": len(errors), "export_scope": "all_groups_separate", "partial_success": bool(results and errors), "url": results[0].get("url") if results else ""}
+            manifest.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+            summary["path"] = rel_path(manifest)
+            summary["manifest_path"] = summary["path"]
             project["export"] = summary
             project.setdefault("exports", []).append(summary)
             save_project(project)

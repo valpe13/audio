@@ -1,0 +1,12 @@
+[
+  {
+    "path": "ComfyUI/custom_nodes/comfyui-fish-speech-api/__init__.py",
+    "sha256": "ec32c8072292209c3d36ee0678876781bf177deaa4669aa7f621a7bd9b7fa492",
+    "size": 3714
+  },
+  {
+    "path": "ComfyUI/custom_nodes/comfyui-silero-tts-api/__init__.py",
+    "sha256": "223caed6bf78786ae13a42ecfc5e750484d79c9b0d5bc4b59875684d698e64d6",
+    "size": 3492
+  }
+]

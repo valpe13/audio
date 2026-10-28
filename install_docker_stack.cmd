@@ -9,7 +9,7 @@ if not exist "%PS_SCRIPT%" (
   echo install_docker_stack.ps1 was not found next to this file.
   echo Downloading it from:
   echo %PS_SCRIPT_URL%
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%PS_SCRIPT_URL%' -OutFile '%PS_SCRIPT%'"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:PS_SCRIPT_URL -OutFile $env:PS_SCRIPT"
   if errorlevel 1 (
     echo.
     echo [ERROR] Failed to download install_docker_stack.ps1.

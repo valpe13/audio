@@ -91,11 +91,13 @@ if errorlevel 1 (
 
 if "%OPTIONAL_FAILURES%"=="0" (
   echo Optional video resource installer finished without required-helper errors.
+  set "OPTIONAL_EXIT_CODE=0"
 ) else (
-  echo Optional video resource installer finished with %OPTIONAL_FAILURES% warning/error(s).
+  echo Optional video resource installer finished with %OPTIONAL_FAILURES% warning/error^(s^).
   echo Base XTTS Studio installation is not affected.
+  set "OPTIONAL_EXIT_CODE=1"
 )
 
 if not defined NO_PAUSE pause
 endlocal
-exit /b 0
+exit /b %OPTIONAL_EXIT_CODE%

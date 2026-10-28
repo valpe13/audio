@@ -2,6 +2,14 @@
 .roo
 .vscode
 .idea
+.agents
+.codex
+.env
+.env.*
+**/*.secret
+**/project.secrets.json
+verification/
+local-storage-audit.json
 
 __pycache__/
 **/__pycache__/

@@ -1,0 +1,42 @@
+name: Installation check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-installers:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python tools/test_installers.py
+      - name: Parse PowerShell installers
+        shell: powershell
+        run: |
+          Get-ChildItem *.ps1, tools/*.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors) { throw ($errors | Out-String) }
+          }
+  docker-speech:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and build from clean checkout
+        run: |
+          docker compose config --quiet
+          docker compose up -d --build --wait --wait-timeout 240
+      - name: Generate real speech and export MP3
+        run: python3 tools/smoke_install.py
+      - name: Logs
+        if: always()
+        run: docker compose logs --tail=100
+      - name: Stop
+        if: always()
+        run: docker compose down

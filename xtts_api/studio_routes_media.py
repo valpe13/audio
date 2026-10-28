@@ -26,6 +26,17 @@ def ensure_project_storage_media_path(resolved: Any, deps: dict[str, Any], media
         raise HTTPException(status_code=403, detail=f"{media_label} path is outside project storage")
 
 
+def audio_file_response(path: str, deps: dict[str, Any]) -> FileResponse:
+    if not path:
+        raise HTTPException(status_code=400, detail="Audio path is required")
+    resolved = dep(deps, "resolve_user_path")(path, must_exist=True)
+    if not resolved or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    ensure_project_storage_media_path(resolved, deps, "Audio")
+    media_type = mimetypes.guess_type(str(resolved))[0] or "audio/wav"
+    return FileResponse(str(resolved), media_type=media_type, filename=resolved.name)
+
+
 def image_file_response(path: str, deps: dict[str, Any]) -> FileResponse:
     if not path:
         raise HTTPException(status_code=400, detail="Image path is required")
@@ -61,11 +72,7 @@ def register_media_routes(app: Any, deps: dict[str, Any]) -> None:
     def audio(path: str) -> FileResponse:
         if re.match(r"^https?://", path or "", flags=re.IGNORECASE):
             return RedirectResponse(path)
-        resolved = dep(deps, "resolve_user_path")(path, must_exist=True)
-        if not resolved or not resolved.is_file():
-            raise HTTPException(status_code=404, detail="Audio file not found")
-        media_type = mimetypes.guess_type(str(resolved))[0] or "audio/wav"
-        return FileResponse(str(resolved), media_type=media_type, filename=resolved.name)
+        return audio_file_response(path, deps)
 
     @app.get("/api/image")
     def image(path: str) -> FileResponse:

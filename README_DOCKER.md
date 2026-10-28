@@ -13,7 +13,7 @@ Docker defaults to the Silero backend so a fresh machine can generate audio with
 ## Requirements
 
 - Docker Desktop or Docker Engine with Docker Compose v2.
-- At least 12 GB free disk space for the image and model caches.
+- At least 25 GB free disk space for the image and model caches.
 - For GPU acceleration: NVIDIA driver plus NVIDIA Container Toolkit / Docker Desktop GPU support.
 
 ## One-click Windows installer

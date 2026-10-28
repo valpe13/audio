@@ -17,6 +17,16 @@ set "XTTS_REFERENCE=xtts_api\reference_audio\natalia_shtin\natalia_shtin_clean_r
 if not defined XTTS_TORCH_INDEX_URL set "XTTS_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121"
 set "CURRENT_INSTALLER=%~f0"
 if exist "install_models.cmd" if exist "xtts_api\install_comfyui_portable.cmd" set "APP_DIR=."
+set "INSTALL_FAILED=0"
+set "REPORT_PRINTED=0"
+set "PYTHON_STATUS=NOT RUN"
+set "CODE_STATUS=NOT RUN"
+set "XTTS_ASSETS_STATUS=NOT RUN"
+set "XTTS_MODELS_STATUS=NOT RUN"
+set "COMFYUI_RUNTIME_STATUS=NOT RUN"
+set "COMFYUI_NODES_STATUS=NOT RUN"
+set "AUDIO_APIS_STATUS=NOT RUN"
+set "VIDEO_RESOURCES_STATUS=NOT RUN"
 
 call :parse_args %*
 if errorlevel 1 exit /b 1
@@ -38,38 +48,89 @@ echo.
 where powershell >nul 2>nul
 if errorlevel 1 (
   echo ОШИБКА: PowerShell необходим, но не найден.
-  exit /b 1
+  call :mark_failed CODE "PowerShell is required but was not found"
+  goto fail
 )
 
 call :ensure_python310
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed PYTHON "Python 3.10 setup failed"
+  goto fail
+)
+call :mark_ok PYTHON "Python 3.10 available"
 
 call :download_code
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed CODE "Project download/update failed"
+  goto fail
+)
+call :mark_ok CODE "Project files available"
 
 cd /d "%APP_DIR%"
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed CODE "Cannot enter project directory"
+  goto fail
+)
 
 if defined SKIP_ASSETS (
   echo Пропускаю загрузку XTTS-ресурсов и предзагрузку моделей/зависимостей, потому что указан --skip-assets.
+  call :mark_skipped XTTS_ASSETS "Skipped by --skip-assets"
+  call :mark_skipped XTTS_MODELS "Skipped by --skip-assets"
 ) else (
   call :download_assets
-  if errorlevel 1 goto fail
+  if errorlevel 1 (
+    call :mark_failed XTTS_ASSETS "XTTS release assets failed"
+  ) else (
+    call :mark_ok XTTS_ASSETS "XTTS release assets ready"
+  )
 
-  call install_models.cmd --no-pause
-  if errorlevel 1 goto fail
+  if not exist "install_models.cmd" (
+    echo ОШИБКА: Не найден install_models.cmd.
+    call :mark_failed XTTS_MODELS "install_models.cmd not found"
+  ) else (
+    call install_models.cmd --no-pause
+    if errorlevel 1 (
+      call :mark_failed XTTS_MODELS "XTTS model/dependency preload failed"
+    ) else (
+      call :mark_ok XTTS_MODELS "XTTS model/dependency preload ready"
+    )
+  )
 )
 
 call :install_base_comfyui_runtime
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed COMFYUI_RUNTIME "Base ComfyUI portable failed"
+) else (
+  call :mark_ok COMFYUI_RUNTIME "Base ComfyUI portable ready"
+)
 
 call :install_project_comfyui_nodes
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed COMFYUI_NODES "Project ComfyUI nodes failed"
+) else (
+  call :mark_ok COMFYUI_NODES "Project ComfyUI nodes ready"
+)
 
 call :install_optional_audio_apis
-if errorlevel 1 goto fail
+if errorlevel 1 (
+  call :mark_failed AUDIO_APIS "Optional audio APIs failed"
+) else (
+  call :mark_ok AUDIO_APIS "Optional audio APIs ready"
+)
 
 call :install_default_video_resources
+if errorlevel 1 (
+  call :mark_failed VIDEO_RESOURCES "Image/video resources failed"
+) else (
+  if defined SKIP_VIDEO_MODELS (
+    call :mark_skipped VIDEO_RESOURCES "Skipped by --skip-video-models/--no-video"
+  ) else (
+    call :mark_ok VIDEO_RESOURCES "Image/video resources ready"
+  )
+)
+
+call :print_status_report
+if "%INSTALL_FAILED%"=="1" goto fail_after_report
 
 echo.
 if defined INSTALL_MODE_UPDATE (
@@ -83,16 +144,76 @@ echo.
 if not defined NO_PAUSE pause
 exit /b 0
 
+:mark_ok
+set "%~1_STATUS=OK - %~2"
+exit /b 0
+
+:mark_failed
+set "%~1_STATUS=FAILED - %~2"
+set "INSTALL_FAILED=1"
+exit /b 0
+
+:mark_skipped
+set "%~1_STATUS=SKIPPED - %~2"
+exit /b 0
+
+:print_status_report
+echo.
+echo Итоговый статус компонентов установки:
+echo   Python 3.10: %PYTHON_STATUS%
+echo   Код проекта: %CODE_STATUS%
+echo   XTTS release assets: %XTTS_ASSETS_STATUS%
+echo   XTTS models/dependencies: %XTTS_MODELS_STATUS%
+echo   ComfyUI portable runtime: %COMFYUI_RUNTIME_STATUS%
+echo   ComfyUI project nodes: %COMFYUI_NODES_STATUS%
+echo   Silero/Fish audio APIs: %AUDIO_APIS_STATUS%
+echo   Image/video resources: %VIDEO_RESOURCES_STATUS%
+echo.
+set "REPORT_PRINTED=1"
+exit /b 0
+
 :parse_args
 if "%~1"=="" exit /b 0
-if /i "%~1"=="--no-pause" set "NO_PAUSE=1"& shift & goto parse_args
-if /i "%~1"=="--with-video" set "WITH_VIDEO=1"& shift & goto parse_args
-if /i "%~1"=="--no-video" set "SKIP_VIDEO_MODELS=1"& shift & goto parse_args
-if /i "%~1"=="--skip-video-models" set "SKIP_VIDEO_MODELS=1"& shift & goto parse_args
-if /i "%~1"=="--skip-assets" set "SKIP_ASSETS=1"& shift & goto parse_args
-if /i "%~1"=="--help" set "SHOW_HELP=1"& shift & goto parse_args
-if /i "%~1"=="/help" set "SHOW_HELP=1"& shift & goto parse_args
-if /i "%~1"=="/?" set "SHOW_HELP=1"& shift & goto parse_args
+if /i "%~1"=="--no-pause" (
+  set "NO_PAUSE=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--with-video" (
+  set "WITH_VIDEO=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--no-video" (
+  set "SKIP_VIDEO_MODELS=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--skip-video-models" (
+  set "SKIP_VIDEO_MODELS=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--skip-assets" (
+  set "SKIP_ASSETS=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--help" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="/help" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="/?" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
 echo ОШИБКА: Неизвестный параметр установщика: %~1
 echo Запустите %~nx0 --help для справки.
 exit /b 1
@@ -135,13 +256,14 @@ echo Python 3.10 не найден. Загружаю Python %PYTHON_VERSION%...
 set "DL_DIR=%TEMP%\audio_xtts_installer"
 if not exist "%DL_DIR%" mkdir "%DL_DIR%"
 set "PY_INSTALLER_PATH=%DL_DIR%\%PYTHON_INSTALLER%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%PY_INSTALLER_PATH%'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%PYTHON_URL%' -OutFile '%PY_INSTALLER_PATH%'"
 if errorlevel 1 exit /b 1
 
 echo Устанавливаю Python %PYTHON_VERSION% для текущего пользователя...
 "%PY_INSTALLER_PATH%" /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_pip=1 Include_test=0 SimpleInstall=1
 if errorlevel 1 exit /b 1
 
+set "PATH=%LOCALAPPDATA%\Programs\Python\Launcher;%LOCALAPPDATA%\Programs\Python\Python310;%PATH%"
 echo Жду регистрацию Python launcher...
 timeout /t 5 /nobreak >nul
 where py >nul 2>nul
@@ -163,17 +285,18 @@ if exist "%APP_DIR%\install_models.cmd" (
   if exist "%APP_DIR%\.git" (
     set "GIT_CHECKOUT=1"
     call :safe_git_update "%APP_DIR%"
-    set "GIT_UPDATE_RESULT=%ERRORLEVEL%"
-    if "%GIT_UPDATE_RESULT%"=="2" exit /b 1
-    if "%GIT_UPDATE_RESULT%"=="0" (
-      set "UPDATED_PROJECT=1"
-    ) else (
+    if errorlevel 2 exit /b 1
+    if errorlevel 1 (
       echo ПРЕДУПРЕЖДЕНИЕ: Git-обновление недоступно или пропущено; продолжаю установку/ремонт с существующими файлами проекта.
       echo Код проекта не был обновлён. Зависимости, ComfyUI и модели будут проверены без перезаписи локальных файлов через git.
+    ) else (
+      set "UPDATED_PROJECT=1"
     )
   )
-  if not defined UPDATED_PROJECT call :refresh_existing_project_from_zip
-  if errorlevel 1 exit /b 1
+  if not defined GIT_CHECKOUT if not defined UPDATED_PROJECT (
+    call :refresh_existing_project_from_zip
+    if errorlevel 1 exit /b 1
+  )
   if exist "%CURRENT_INSTALLER%" (
     if /i not "%CURRENT_INSTALLER%"=="%CD%\%APP_DIR%\audio_xtts_universal_installer.cmd" copy /y "%CURRENT_INSTALLER%" "%APP_DIR%\audio_xtts_universal_installer.cmd" >nul
   )
@@ -185,7 +308,8 @@ if not errorlevel 1 (
   echo Существующая папка проекта не найдена. Выполняю новую установку в: %APP_DIR%
   echo Загружаю код проекта через git...
   git clone "%REPO_URL%" "%APP_DIR%"
-  exit /b %ERRORLEVEL%
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 echo Git не найден. Вместо этого загружаю ZIP репозитория...
@@ -194,11 +318,12 @@ set "ZIP_PATH=%TEMP%\audio-main.zip"
 set "UNZIP_DIR=%TEMP%\audio-main-unzip"
 if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%"
 if exist "%UNZIP_DIR%" rmdir /s /q "%UNZIP_DIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%ZIP_PATH%'; Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%UNZIP_DIR%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%REPO_ZIP%' -OutFile '%ZIP_PATH%'; Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%UNZIP_DIR%' -Force"
 if errorlevel 1 exit /b 1
 if exist "%UNZIP_DIR%\audio-main" (
   move "%UNZIP_DIR%\audio-main" "%APP_DIR%" >nul
-  exit /b %ERRORLEVEL%
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 echo ОШИБКА: Не удалось найти распакованную папку audio-main.
 exit /b 1
@@ -210,7 +335,7 @@ set "ZIP_PATH=%TEMP%\audio-main.zip"
 set "UNZIP_DIR=%TEMP%\audio-main-unzip"
 if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%"
 if exist "%UNZIP_DIR%" rmdir /s /q "%UNZIP_DIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%ZIP_PATH%'; Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%UNZIP_DIR%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%REPO_ZIP%' -OutFile '%ZIP_PATH%'; Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%UNZIP_DIR%' -Force"
 if errorlevel 1 exit /b 1
 if not exist "%UNZIP_DIR%\audio-main\install_models.cmd" (
   echo ОШИБКА: Не удалось найти install_models.cmd в загруженном ZIP проекта.
@@ -312,7 +437,12 @@ if not exist ".venv-silero\Scripts\python.exe" (
   )
 )
 echo Устанавливаю зависимости Silero TTS API...
-".venv-silero\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r silero_tts_api\requirements.txt --extra-index-url "%XTTS_TORCH_INDEX_URL%"
+if defined XTTS_OFFLINE if exist "silero_tts_api\wheelhouse\*.whl" (
+  echo Offline mode: installing Silero dependencies from silero_tts_api\wheelhouse only...
+  ".venv-silero\Scripts\python.exe" -m pip install --disable-pip-version-check --no-index --find-links "silero_tts_api\wheelhouse" -r silero_tts_api\requirements.txt
+) else (
+  ".venv-silero\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r silero_tts_api\requirements.txt --extra-index-url "%XTTS_TORCH_INDEX_URL%"
+)
 if errorlevel 1 (
   echo ОШИБКА: Не удалось установить зависимости Silero TTS API.
   echo Silero нужен только для option 2/6 и stress-aware RU backend, но установщик должен подготовить полный пользовательский стек.
@@ -335,7 +465,12 @@ if not exist ".venv-fish\Scripts\python.exe" (
 )
 if exist "fish_speech_api\config.example.json" if not exist "fish_speech_api\config.json" copy "fish_speech_api\config.example.json" "fish_speech_api\config.json" >nul
 echo Устанавливаю зависимости Fish Speech API...
-".venv-fish\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r fish_speech_api\requirements.txt
+if defined XTTS_OFFLINE if exist "fish_speech_api\wheelhouse\*.whl" (
+  echo Offline mode: installing Fish Speech dependencies from fish_speech_api\wheelhouse only...
+  ".venv-fish\Scripts\python.exe" -m pip install --disable-pip-version-check --no-index --find-links "fish_speech_api\wheelhouse" -r fish_speech_api\requirements.txt
+) else (
+  ".venv-fish\Scripts\python.exe" -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r fish_speech_api\requirements.txt
+)
 if errorlevel 1 (
   echo ОШИБКА: Не удалось установить зависимости Fish Speech API.
   exit /b 1
@@ -380,7 +515,7 @@ if exist "%ASSETS_ZIP%" (
 )
 
 if not exist "%ASSETS_ZIP%" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%ASSETS_URL%' -OutFile '%ASSETS_ZIP%'"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%ASSETS_URL%' -OutFile '%ASSETS_ZIP%'"
   if errorlevel 1 exit /b 1
 )
 
@@ -407,7 +542,7 @@ exit /b 0
 
 :install_video_resources
 echo.
-echo Устанавливаю image/video модели и дополнительные ресурсы ComfyUI. Ошибки здесь не отменяют установку XTTS.
+echo Устанавливаю image/video модели и дополнительные ресурсы ComfyUI.
 if exist "install_optional_video_resources.cmd" (
   call install_optional_video_resources.cmd --no-pause
 ) else (
@@ -415,7 +550,8 @@ if exist "install_optional_video_resources.cmd" (
   exit /b 0
 )
 if errorlevel 1 (
-  echo ПРЕДУПРЕЖДЕНИЕ: Установка image/video ресурсов сообщила об ошибках, но базовая установка XTTS завершена.
+  echo ОШИБКА: Установка image/video ресурсов сообщила об ошибках.
+  exit /b 1
 ) else (
   echo Установка image/video ресурсов завершена.
 )
@@ -423,7 +559,14 @@ exit /b 0
 
 :fail
 echo.
+if not "%REPORT_PRINTED%"=="1" call :print_status_report
 echo Установка не завершена. Проверьте ошибку выше.
+echo.
+if not defined NO_PAUSE pause
+exit /b 1
+
+:fail_after_report
+echo Установка не завершена. Один или несколько компонентов завершились с ошибкой; смотрите итоговый статус выше.
 echo.
 if not defined NO_PAUSE pause
 exit /b 1

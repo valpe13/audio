@@ -59,21 +59,23 @@ def register_queue_write_routes(app: Any, deps: dict[str, Any]) -> None:
         )
 
     @app.delete("/api/queue/{task_id}")
-    def delete_queue_task(task_id: str) -> dict[str, Any]:
+    def delete_queue_task(task_id: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
         if not dep(deps, "remove_task")(task_id):
             raise HTTPException(status_code=400, detail="Only queued tasks can be removed")
+        pid = project_id or dep(deps, "active_project_id")()
         return dep(deps, "prepare_queue_progress_response")(
-            dep(deps, "queue_snapshot")(dep(deps, "active_project_id")()),
+            dep(deps, "queue_snapshot")(pid),
             dep(deps, "progress_snapshot")(),
         )
 
     @app.post("/api/queue/{task_id}/move/{direction}")
-    def move_queue_task(task_id: str, direction: str) -> dict[str, Any]:
+    def move_queue_task(task_id: str, direction: str, project_id: str | None = Query(default=None)) -> dict[str, Any]:
         if direction not in {"up", "down"}:
             raise HTTPException(status_code=400, detail="direction must be up or down")
         if not dep(deps, "move_task")(task_id, direction):
             raise HTTPException(status_code=400, detail="Task cannot be moved")
+        pid = project_id or dep(deps, "active_project_id")()
         return dep(deps, "prepare_queue_progress_response")(
-            dep(deps, "queue_snapshot")(dep(deps, "active_project_id")()),
+            dep(deps, "queue_snapshot")(pid),
             dep(deps, "progress_snapshot")(),
         )

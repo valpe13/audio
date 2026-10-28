@@ -1,0 +1,77 @@
+diff --git a/fish_speech/tokenizer.py b/fish_speech/tokenizer.py
+index b5cc199..5ca3994 100644
+--- a/fish_speech/tokenizer.py
++++ b/fish_speech/tokenizer.py
+@@ -3,7 +3,9 @@ import logging
+ from pathlib import Path
+ from typing import TYPE_CHECKING, List, Union
+ 
++import tiktoken
+ import torch
++from tiktoken.load import load_tiktoken_bpe
+ from transformers import AutoTokenizer
+ 
+ if TYPE_CHECKING:
+@@ -54,7 +56,10 @@ ALL_SPECIAL_TOKENS = [
+ 
+ class FishTokenizer:
+     def __init__(self, model_path: str):
+-        self._tokenizer = AutoTokenizer.from_pretrained(model_path)
++        try:
++            self._tokenizer = AutoTokenizer.from_pretrained(model_path)
++        except Exception:
++            self._tokenizer = _TiktokenFishTokenizer(model_path)
+         self.semantic_id_to_token_id = {}
+ 
+         vocab = self._tokenizer.get_vocab()
+@@ -127,3 +132,50 @@ class FishTokenizer:
+ 
+     def __getattr__(self, name):
+         return getattr(self._tokenizer, name)
++
++
++class _TiktokenFishTokenizer:
++    def __init__(self, model_path: str):
++        path = Path(model_path)
++        mergeable_ranks = load_tiktoken_bpe(str(path / "tokenizer.tiktoken"))
++        special_tokens = json.loads((path / "special_tokens.json").read_text(encoding="utf-8"))
++        self._special_tokens = special_tokens
++        self._token_to_id = dict(special_tokens)
++        self._id_to_token = {value: key for key, value in special_tokens.items()}
++        self._encoding = tiktoken.Encoding(
++            name=path.name,
++            pat_str=r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+",
++            mergeable_ranks=mergeable_ranks,
++            special_tokens=special_tokens,
++        )
++
++    @property
++    def vocab_size(self):
++        return self._encoding.n_vocab
++
++    @property
++    def pad_token_id(self):
++        return self._token_to_id.get(PAD_TOKEN)
++
++    @property
++    def eos_token_id(self):
++        return self._token_to_id.get(EOS_TOKEN, self._token_to_id.get("<|end_of_text|>"))
++
++    def get_vocab(self):
++        vocab = {key.decode("utf-8", errors="replace"): value for key, value in self._encoding._mergeable_ranks.items()}
++        vocab.update(self._special_tokens)
++        return vocab
++
++    def convert_tokens_to_ids(self, token: str):
++        return self._token_to_id.get(token)
++
++    def encode(self, text: str, add_special_tokens: bool = False, **kwargs):
++        return self._encoding.encode(text, allowed_special="all", disallowed_special=())
++
++    def decode(self, tokens, **kwargs):
++        if isinstance(tokens, int):
++            tokens = [tokens]
++        return self._encoding.decode(tokens)
++
++    def save_pretrained(self, path: str):
++        raise NotImplementedError("Saving tiktoken fallback tokenizers is not implemented")

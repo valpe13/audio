@@ -10,9 +10,13 @@ set "XTTS_PY=%XTTS_VENV%\Scripts\python.exe"
 set "XTTS_CACHE=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2"
 set "XTTS_MODEL=%LOCALAPPDATA%\tts\tts_models--multilingual--multi-dataset--xtts_v2\model.pth"
 set "XTTS_WHEELHOUSE=xtts_api\wheelhouse"
+set "XTTS_OFFLINE_MODE="
 if not defined XTTS_PIP_RETRIES set "XTTS_PIP_RETRIES=10"
 if not defined XTTS_PIP_TIMEOUT set "XTTS_PIP_TIMEOUT=60"
 if not defined XTTS_TORCH_INDEX_URL set "XTTS_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121"
+
+call :parse_args %*
+if errorlevel 1 exit /b 1
 
 echo XTTS installer / model preloader
 echo =================================
@@ -80,6 +84,11 @@ if exist "%XTTS_MODEL%" (
 )
 
 echo Preloading Coqui XTTS v2 model into the local user cache ...
+if defined XTTS_OFFLINE_MODE (
+  echo ERROR: XTTS v2 model is missing from %%LOCALAPPDATA%%\tts and offline mode prevents network preload.
+  echo ERROR: Include XTTS cache files in the offline payload or run the online installer once before retrying.
+  exit /b 1
+)
 set "PRELOAD_SCRIPT=%TEMP%\preload_xtts_model.py"
 > "%PRELOAD_SCRIPT%" echo import os
 >> "%PRELOAD_SCRIPT%" echo from pathlib import Path
@@ -103,9 +112,26 @@ echo XTTS v2 model cache: %%LOCALAPPDATA%%\tts\tts_models--multilingual--multi-d
 echo Default reference: xtts_api\reference_audio\natalia_shtin\natalia_shtin_clean_reference.wav
 echo Launch from the repository root with: run_audio_stack.cmd
 echo.
-if /i not "%~1"=="--no-pause" pause
+if not defined NO_PAUSE pause
 endlocal
 exit /b 0
+
+:parse_args
+if "%~1"=="" exit /b 0
+if /i "%~1"=="--no-pause" (
+  set "NO_PAUSE=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--offline" (
+  set "XTTS_OFFLINE_MODE=1"
+  set "XTTS_SKIP_PIP_PREFLIGHT=1"
+  set "XTTS_SKIP_PIP_TOOLING_UPGRADE=1"
+  shift
+  goto parse_args
+)
+echo ERROR: Unknown install_models.cmd parameter: %~1
+exit /b 1
 
 :bootstrap_pip_tooling
 echo Bootstrapping pip tooling ...
@@ -151,6 +177,12 @@ if exist "%XTTS_WHEELHOUSE%\*.whl" (
 
 echo No local wheelhouse found at %XTTS_WHEELHOUSE%; skipping offline wheel/setuptools bootstrap.
 
+if defined XTTS_OFFLINE_MODE (
+  echo Offline mode is enabled and no local wheelhouse was found for pip helpers.
+  echo Continuing only if existing pip/setuptools/wheel are sufficient.
+  exit /b 0
+)
+
 if /i "%XTTS_SKIP_PIP_TOOLING_UPGRADE%"=="1" (
   echo Skipping optional pip helper upgrade because XTTS_SKIP_PIP_TOOLING_UPGRADE=1.
   echo If dependency installation fails, check PyPI access or set PIP_INDEX_URL to a reachable mirror.
@@ -172,6 +204,11 @@ exit /b 0
 
 :ensure_cpp_build_tools
 echo.
+if defined XTTS_OFFLINE_MODE (
+  echo Offline mode: not downloading Microsoft C++ Build Tools.
+  echo If local wheels are complete, a compiler should not be needed.
+  exit /b 0
+)
 echo Checking Microsoft C++ Build Tools, required when pip builds Coqui TTS from source ...
 where cl >nul 2>nul
 if not errorlevel 1 (
@@ -214,6 +251,10 @@ exit /b 0
 
 :preflight_pip_indexes
 echo.
+if defined XTTS_SKIP_PIP_PREFLIGHT (
+  echo Skipping pip index preflight because offline mode or XTTS_SKIP_PIP_PREFLIGHT is enabled.
+  exit /b 0
+)
 echo Checking pip index access before heavy XTTS dependency install ...
 if defined PIP_INDEX_URL (
   echo PIP_INDEX_URL=%PIP_INDEX_URL%
@@ -269,6 +310,10 @@ exit /b 1
 
 :preflight_disk_space
 echo.
+if defined XTTS_OFFLINE_MODE (
+  echo Offline mode: skipping heavy online-install disk-space preflight.
+  exit /b 0
+)
 echo Checking disk space before heavy XTTS dependency install ...
 echo Recommended: 30+ GB free for CUDA torch/XTTS install. Minimum checked here: 15 GB.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $threshold=15GB; function Get-FreeInfo([string]$Name,[string]$Path){ if([string]::IsNullOrWhiteSpace($Path)){ return $null }; $expanded=[Environment]::ExpandEnvironmentVariables($Path); if(-not (Test-Path -LiteralPath $expanded)){ $parent=Split-Path -Path $expanded -Parent; if($parent -and (Test-Path -LiteralPath $parent)){ $expanded=$parent } }; if(-not (Test-Path -LiteralPath $expanded)){ Write-Host ('  {0}: {1} (path not found; cannot check)' -f $Name,$Path); return $null }; $full=(Resolve-Path -LiteralPath $expanded).Path; $root=[IO.Path]::GetPathRoot($full); $driveName=$root.Substring(0,1); $drive=Get-PSDrive -Name $driveName -PSProvider FileSystem; $free=[int64]$drive.Free; Write-Host ('  {0}: {1} on {2} - {3:N1} GB free' -f $Name,$full,$root,($free/1GB)); [pscustomobject]@{Name=$Name;Path=$full;Root=$root;Free=$free} }; $items=@(); $items += Get-FreeInfo 'Project/current drive' (Get-Location).Path; $items += Get-FreeInfo 'TEMP' $env:TEMP; $pipCache=$null; try { $pipCache=(& $env:XTTS_PY -m pip cache dir 2>$null | Select-Object -First 1); if($LASTEXITCODE -ne 0){ $pipCache=$null } } catch { $pipCache=$null }; if([string]::IsNullOrWhiteSpace($pipCache)){ $pipCache=Join-Path $env:LOCALAPPDATA 'pip\Cache'; Write-Host ('  pip cache dir: using fallback {0}' -f $pipCache) } else { Write-Host ('  pip cache dir: {0}' -f $pipCache) }; $items += Get-FreeInfo 'pip cache drive' $pipCache; $items += Get-FreeInfo 'LOCALAPPDATA / XTTS cache root' $env:LOCALAPPDATA; $low=@($items | Where-Object { $_ -and $_.Free -lt $threshold }); if($low.Count -gt 0){ Write-Host ''; Write-Host 'ERROR: Critical disk space is below 15 GB on at least one install/cache location.'; foreach($i in $low){ Write-Host ('ERROR: {0} has only {1:N1} GB free: {2}' -f $i.Name,($i.Free/1GB),$i.Root) }; Write-Host 'ERROR: Free space or move TEMP/PIP_CACHE_DIR/project to a drive with 30+ GB free, then retry.'; exit 2 }; Write-Host 'Disk-space preflight passed for checked locations.'"
@@ -282,6 +327,17 @@ if not "%DISK_PREFLIGHT_EXIT%"=="0" (
 exit /b 0
 
 :pip_install_xtts_requirements
+if defined XTTS_OFFLINE_MODE (
+  if not exist "%XTTS_WHEELHOUSE%\*.whl" (
+    echo ERROR: Offline mode requires local wheels at %XTTS_WHEELHOUSE% for missing XTTS dependencies.
+    echo ERROR: Add a wheelhouse to the offline payload or rerun without --offline when internet is available.
+    exit /b 1
+  )
+  echo Installing XTTS requirements from local wheelhouse only: %XTTS_WHEELHOUSE%
+  "%XTTS_PY%" -m pip install --disable-pip-version-check --no-index --find-links "%XTTS_WHEELHOUSE%" -r xtts_api\requirements.txt
+  if errorlevel 1 goto pip_requirements_failed
+  exit /b 0
+)
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 set "VSINSTALL="
 if exist "%VSWHERE%" (

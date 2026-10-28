@@ -35,6 +35,7 @@ def register_project_write_routes(app: Any, deps: dict[str, Any]) -> None:
         dep(deps, "create_project_storage")(pid, project)
         index = dep(deps, "prepare_project_create_index_update")(index, dep(deps, "project_metadata_from_project")(project, pid), pid)
         dep(deps, "save_projects_index")(index)
+        dep(deps, "set_active_project")(pid)
         return dep(deps, "prepare_created_project_response")(
             dep(deps, "enrich_project")(dep(deps, "load_project")(pid)),
             dep(deps, "load_projects_index")().get("projects", []),
@@ -60,6 +61,7 @@ def register_project_write_routes(app: Any, deps: dict[str, Any]) -> None:
         if payload.name is not None:
             project["name"] = payload.name.strip() or project.get("name") or pid
         dep(deps, "save_project")(project, pid)
+        dep(deps, "set_active_project")(pid)
         return dep(deps, "prepare_patched_project_response")(
             dep(deps, "enrich_project")(dep(deps, "load_project")(pid)),
             dep(deps, "load_projects_index")().get("projects", []),
@@ -101,6 +103,8 @@ def register_project_write_routes(app: Any, deps: dict[str, Any]) -> None:
     @app.post("/api/project/text")
     def save_full_text(payload: TextValue, project_id: str | None = Query(default=None)) -> dict[str, Any]:
         project = dep(deps, "load_project")(project_id)
+        pid = dep(deps, "safe_project_id")(str(project.get("id") or dep(deps, "active_project_id")()))
         project["full_text"] = dep(deps, "repair_mojibake_text")(payload.text)[0]
         dep(deps, "set_status")(project, "Text saved")
+        dep(deps, "set_active_project")(pid)
         return dep(deps, "enrich_project")(project)

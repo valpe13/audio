@@ -277,15 +277,16 @@ def register_project_media_generation_routes(app: Any, deps: dict[str, Any]) -> 
                 skipped.append({"group_id": group_id, "reason": "no scheduled timeline image"})
                 continue
             for source in sources:
+                task = None
                 try:
                     task = dep(deps, "enqueue_group_video_task")(project, group_id, force=payload.force, source_media_id=str(source.get("id") or ""), bulk_auto_place=True)
                 except HTTPException as exc:
                     skipped.append({"group_id": group_id, "source_media_id": str(source.get("id") or ""), "reason": str(exc.detail)})
                     continue
-            if task:
-                queued.append(task)
-            else:
-                skipped.append({"group_id": group_id, "source_media_id": str(source.get("id") or ""), "reason": "video already exists or active"})
+                if task:
+                    queued.append(task)
+                else:
+                    skipped.append({"group_id": group_id, "source_media_id": str(source.get("id") or ""), "reason": "video already exists or active"})
         backend_label = dep(deps, "video_i2v_backend_label")(dep(deps, "video_i2v_settings")(project))
         dep(deps, "set_status")(project, f"Queued {len(queued)} {backend_label} video generation task(s), skipped {len(skipped)}; generated videos will auto-place across each group timeline because this was an explicit bulk action", bool(queued))
         return dep(deps, "prepare_queued_tasks_skipped_response")(queued, skipped, dep(deps, "queue_snapshot")(pid), dep(deps, "progress_snapshot")(), dep(deps, "enrich_project")(dep(deps, "load_project")(pid)))

@@ -77,12 +77,36 @@ exit /b 0
 
 :parse_args
 if "%~1"=="" exit /b 0
-if /i "%~1"=="--no-pause" set "NO_PAUSE=1"& shift & goto parse_args
-if /i "%~1"=="--with-video" set "WITH_VIDEO=1"& shift & goto parse_args
-if /i "%~1"=="--skip-git" set "SKIP_GIT=1"& shift & goto parse_args
-if /i "%~1"=="--help" set "SHOW_HELP=1"& shift & goto parse_args
-if /i "%~1"=="/help" set "SHOW_HELP=1"& shift & goto parse_args
-if /i "%~1"=="/?" set "SHOW_HELP=1"& shift & goto parse_args
+if /i "%~1"=="--no-pause" (
+  set "NO_PAUSE=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--with-video" (
+  set "WITH_VIDEO=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--skip-git" (
+  set "SKIP_GIT=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--help" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="/help" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="/?" (
+  set "SHOW_HELP=1"
+  shift
+  goto parse_args
+)
 echo ОШИБКА: Неизвестный параметр: %~1
 call :print_help
 exit /b 1

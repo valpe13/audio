@@ -299,7 +299,7 @@ def prepare_optional_queued_task_response(queued_task: dict[str, Any] | None, qu
 
 def prepare_optional_queued_tasks_response(queued_task: dict[str, Any] | None, queue: list[dict[str, Any]], progress: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
     """Return the API response payload for an already-attempted optional queued task list."""
-    return {"queued_tasks": [queued_task] if queued_task else [], "queue": queue, "progress": progress, "project": project}
+    return {"queued_tasks": [queued_task] if queued_task else [], "skipped_count": 0 if queued_task else 1, "queue": queue, "progress": progress, "project": project}
 
 
 def prepare_queued_tasks_plain_response(queued_tasks: list[dict[str, Any]], queue: list[dict[str, Any]], progress: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:

@@ -993,6 +993,7 @@ export_helpers = make_export_helpers({
     "sanitize_bitrate": sanitize_bitrate,
     "save_project": save_project,
     "selected_chunk_audio_path": lambda chunk: selected_chunk_audio_path_base(chunk, resolve_user_path),
+    "split_range_by_group_media_timeline": split_range_by_group_media_timeline,
     "subtitle_event_model_for_block": subtitle_event_model_for_block,
     "visual_segment_source_value": visual_segment_source_value,
     "wav_stats": wav_stats,

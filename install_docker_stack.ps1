@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param(
     [string]$RepoUrl = "https://github.com/valpe13/audio.git",
@@ -16,6 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -134,7 +135,7 @@ function Install-DockerDesktopIfNeeded {
             Write-Info "[dry-run] Would download $DockerInstallerUrl to $installerPath"
         } else {
             New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-            Invoke-WebRequest -Uri $DockerInstallerUrl -OutFile $installerPath
+            Invoke-WebRequest -UseBasicParsing -Uri $DockerInstallerUrl -OutFile $installerPath
         }
 
         Write-Info "Installing Docker Desktop in per-user WSL 2 mode."
@@ -142,7 +143,7 @@ function Install-DockerDesktopIfNeeded {
         if (-not $DryRun) {
             $process = Start-Process -FilePath $installerPath `
                 -ArgumentList @("install", "--user", "--quiet", "--accept-license", "--backend=wsl-2") `
-                -Wait -PassThru
+                -WindowStyle Hidden -Wait -PassThru
             if ($process.ExitCode -notin @(0, 3010, 1641)) {
                 throw "Docker Desktop installer failed with exit code $($process.ExitCode)."
             }
@@ -167,7 +168,7 @@ function Install-DockerDesktopIfNeeded {
     if (-not (Test-DockerServerReady)) {
         Write-Info "Starting Docker Desktop..."
         if (-not $DryRun) {
-            Start-Process -FilePath $desktopExe -WindowStyle Minimized | Out-Null
+            Start-Process -FilePath $desktopExe -WindowStyle Hidden | Out-Null
         }
     }
 
@@ -224,7 +225,7 @@ function Download-ProjectZip {
     }
 
     New-Item -ItemType Directory -Force -Path $tmpRoot, $extractPath | Out-Null
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+    Invoke-WebRequest -UseBasicParsing -Uri $zipUrl -OutFile $zipPath
     Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
     $inner = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
     if (-not $inner) {
@@ -238,8 +239,7 @@ function Ensure-Project {
 
     $scriptDir = Split-Path -Parent $PSCommandPath
     if (-not $ProjectDir -and (Test-ProjectDirectory $scriptDir)) {
-        Write-Info "Using project next to installer: $scriptDir"
-        return (Resolve-Path -LiteralPath $scriptDir).Path
+        $ProjectDir = $scriptDir
     }
 
     if ($ProjectDir) {
@@ -253,7 +253,11 @@ function Ensure-Project {
         Write-Info "Using existing project: $target"
         if ($UpdateProject -and (Test-Path -LiteralPath (Join-Path $target ".git")) -and (Get-GitExe)) {
             Write-Info "Updating existing git checkout with git pull --ff-only."
-            Invoke-External -FilePath (Get-GitExe) -Arguments @("pull", "--ff-only") -WorkingDirectory $target -AllowFailure | Out-Null
+            $dirty = & (Get-GitExe) -C $target status --porcelain
+            if ($LASTEXITCODE -ne 0 -or $dirty) {
+                throw "Cannot update a checkout with local changes. Save them first or install into a new folder."
+            }
+            Invoke-External -FilePath (Get-GitExe) -Arguments @("pull", "--ff-only") -WorkingDirectory $target | Out-Null
         } elseif ($UpdateProject) {
             Write-Warn "Project update was requested, but this folder is not a git checkout or Git is missing."
         }
@@ -382,13 +386,16 @@ function Warmup-Silero {
     }
 
     try {
-        Invoke-RestMethod -Method Post -Uri "http://localhost:$Port/v1/tts" `
+        $result = Invoke-RestMethod -Method Post -Uri "http://localhost:$Port/v1/tts" `
             -ContentType "application/json; charset=utf-8" `
             -Body ([Text.Encoding]::UTF8.GetBytes($payload)) `
-            -TimeoutSec 240 | Out-Null
+            -TimeoutSec 600
+        if (-not $result.audio_path -or $result.duration_seconds -le 0) {
+            throw "Silero did not return a non-empty audio result."
+        }
         Write-Info "Silero model is downloaded and generated a smoke-test WAV."
     } catch {
-        Write-Warn "Silero warmup failed: $($_.Exception.Message). The service is still installed; check docker compose logs."
+        throw "Silero audio test failed: $($_.Exception.Message). Run docker compose logs --tail=200 and retry this installer."
     }
 }
 
@@ -411,15 +418,15 @@ function Verify-Stack {
 
     if (-not $DryRun) {
         Wait-HttpOk -Uri "http://localhost:$xttsPort/api/health" -TimeoutSeconds 240
-        Wait-HttpOk -Uri "http://localhost:$sileroPort/health" -TimeoutSeconds 120
-        Wait-HttpOk -Uri "http://localhost:$fishPort/health" -TimeoutSeconds 120
+        if ($envData["START_SILERO"] -ne "0") { Wait-HttpOk -Uri "http://localhost:$sileroPort/health" -TimeoutSeconds 120 }
+        if ($envData["START_FISH"] -ne "0") { Wait-HttpOk -Uri "http://localhost:$fishPort/health" -TimeoutSeconds 120 }
     }
 
     Write-Info "XTTS Studio: http://localhost:$xttsPort/studio/"
     Write-Info "Silero API:  http://localhost:$sileroPort/health"
     Write-Info "Fish API:    http://localhost:$fishPort/health"
 
-    Warmup-Silero -Port $sileroPort
+    if ($envData["START_SILERO"] -ne "0") { Warmup-Silero -Port $sileroPort }
     if ($PreloadXtts) {
         Preload-XttsModel -ProjectPath $ProjectPath
     }
