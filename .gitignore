@@ -95,3 +95,10 @@ fish_speech_api/reference_downloads_page.html
 xtts_api/reference_downloads_page.html
 xtts_api/studio_projects/*.json
 xtts_api/studio_projects/projects/*/project.json
+
+# Downloaded installers and binary Python distributions
+*.whl
+*.exe
+*.msi
+*.dll
+*.pyd

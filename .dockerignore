@@ -67,3 +67,8 @@ xtts_api/studio_projects/*.json
 *.temp
 *.download
 *.reassemble
+
+# Private native-install data is never baked into the Docker image.
+**/reference_audio/
+fish_speech_api/config.json
+xtts_api/pronunciation_dictionary.json
