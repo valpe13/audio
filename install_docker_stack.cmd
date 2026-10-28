@@ -30,6 +30,6 @@ if not "%EXIT_CODE%"=="0" (
 )
 
 echo.
-echo Done. XTTS Studio should be available at http://localhost:7870/studio/
+echo Done. XTTS Studio should be available at http://127.0.0.1:7870/studio/
 pause
 exit /b 0

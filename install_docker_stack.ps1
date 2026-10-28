@@ -381,12 +381,12 @@ function Warmup-Silero {
     } | ConvertTo-Json -Compress
 
     if ($DryRun) {
-        Write-Info "[dry-run] Would POST to http://localhost:$Port/v1/tts"
+        Write-Info "[dry-run] Would POST to http://127.0.0.1:$Port/v1/tts"
         return
     }
 
     try {
-        $result = Invoke-RestMethod -Method Post -Uri "http://localhost:$Port/v1/tts" `
+        $result = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/v1/tts" `
             -ContentType "application/json; charset=utf-8" `
             -Body ([Text.Encoding]::UTF8.GetBytes($payload)) `
             -TimeoutSec 600
@@ -417,14 +417,14 @@ function Verify-Stack {
     $fishPort = if ($envData["AUDIO_FISH_PORT"]) { [int]$envData["AUDIO_FISH_PORT"] } else { 7865 }
 
     if (-not $DryRun) {
-        Wait-HttpOk -Uri "http://localhost:$xttsPort/api/health" -TimeoutSeconds 240
-        if ($envData["START_SILERO"] -ne "0") { Wait-HttpOk -Uri "http://localhost:$sileroPort/health" -TimeoutSeconds 120 }
-        if ($envData["START_FISH"] -ne "0") { Wait-HttpOk -Uri "http://localhost:$fishPort/health" -TimeoutSeconds 120 }
+        Wait-HttpOk -Uri "http://127.0.0.1:$xttsPort/api/health" -TimeoutSeconds 240
+        if ($envData["START_SILERO"] -ne "0") { Wait-HttpOk -Uri "http://127.0.0.1:$sileroPort/health" -TimeoutSeconds 120 }
+        if ($envData["START_FISH"] -ne "0") { Wait-HttpOk -Uri "http://127.0.0.1:$fishPort/health" -TimeoutSeconds 120 }
     }
 
-    Write-Info "XTTS Studio: http://localhost:$xttsPort/studio/"
-    Write-Info "Silero API:  http://localhost:$sileroPort/health"
-    Write-Info "Fish API:    http://localhost:$fishPort/health"
+    Write-Info "XTTS Studio: http://127.0.0.1:$xttsPort/studio/"
+    Write-Info "Silero API:  http://127.0.0.1:$sileroPort/health"
+    Write-Info "Fish API:    http://127.0.0.1:$fishPort/health"
 
     if ($envData["START_SILERO"] -ne "0") { Warmup-Silero -Port $sileroPort }
     if ($PreloadXtts) {
@@ -432,7 +432,7 @@ function Verify-Stack {
     }
 
     if (-not $NoStartBrowser -and -not $DryRun) {
-        Start-Process "http://localhost:$xttsPort/studio/" | Out-Null
+        Start-Process "http://127.0.0.1:$xttsPort/studio/" | Out-Null
     }
 }
 

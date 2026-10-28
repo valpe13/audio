@@ -2,9 +2,9 @@
 
 This runs the deployable audio stack in one Linux container:
 
-- XTTS Studio: http://localhost:7870/studio/
-- Silero TTS API: http://localhost:7866/health
-- Fish Speech API placeholder: http://localhost:7865/health
+- XTTS Studio: http://127.0.0.1:7870/studio/
+- Silero TTS API: http://127.0.0.1:7866/health
+- Fish Speech API placeholder: http://127.0.0.1:7865/health
 
 The Windows portable ComfyUI bundle is not included. XTTS Studio can still use xAI/Grok features through `XAI_API_KEY`, or an external ComfyUI URL configured in the UI.
 
@@ -54,7 +54,7 @@ install_docker_stack.cmd -UpdateProject
 docker compose up --build
 ```
 
-Open http://localhost:7870/studio/. The first audio generation uses Silero by default and downloads the Silero torch.hub model into `docker-data/models/`.
+Open http://127.0.0.1:7870/studio/. The first audio generation uses Silero by default and downloads the Silero torch.hub model into `docker-data/models/`.
 
 The first XTTS generation, if enabled in Studio settings, downloads the Coqui XTTS v2 model into `docker-data/models/`. These downloads are reused on later starts.
 
@@ -109,9 +109,9 @@ Docker writes runtime data under `docker-data/`:
 ## Smoke checks
 
 ```bash
-curl http://localhost:7870/api/health
-curl http://localhost:7866/health
-curl http://localhost:7865/health
+curl http://127.0.0.1:7870/api/health
+curl http://127.0.0.1:7866/health
+curl http://127.0.0.1:7865/health
 ```
 
 To stop:
