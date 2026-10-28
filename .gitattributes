@@ -6,3 +6,5 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+*.txt text eol=lf
+Dockerfile text eol=lf
